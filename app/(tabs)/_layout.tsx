@@ -1,5 +1,5 @@
 import { Tabs } from 'expo-router';
-import { Hop as Home, CirclePlus as PlusCircle, ChartBar as BarChart3, List } from 'lucide-react-native';
+import { Hop as Home, CirclePlus as PlusCircle, ChartBar as BarChart3, List, CalendarDays } from 'lucide-react-native';
 import { Colors } from '@/constants/theme';
 import { Platform } from 'react-native';
 
@@ -19,7 +19,7 @@ export default function TabLayout() {
         tabBarActiveTintColor: Colors.dark.primary,
         tabBarInactiveTintColor: Colors.dark.textSecondary,
         tabBarLabelStyle: {
-          fontSize: 12,
+          fontSize: 11,
           fontWeight: '600',
         },
       }}
@@ -36,7 +36,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="add"
         options={{
-          title: 'Add Expense',
+          title: 'Add',
           tabBarIcon: ({ size, color }) => (
             <PlusCircle size={size} color={color} />
           ),
@@ -57,6 +57,15 @@ export default function TabLayout() {
           title: 'History',
           tabBarIcon: ({ size, color }) => (
             <List size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="monthly"
+        options={{
+          title: 'Monthly',
+          tabBarIcon: ({ size, color }) => (
+            <CalendarDays size={size} color={color} />
           ),
         }}
       />
