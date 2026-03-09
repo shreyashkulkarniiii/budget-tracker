@@ -1,6 +1,7 @@
 import { Tabs } from 'expo-router';
 import { Hop as Home, CirclePlus as PlusCircle, ChartBar as BarChart3, List } from 'lucide-react-native';
 import { Colors } from '@/constants/theme';
+import { Platform } from 'react-native';
 
 export default function TabLayout() {
   return (
@@ -11,8 +12,8 @@ export default function TabLayout() {
           backgroundColor: Colors.dark.surface,
           borderTopColor: Colors.dark.border,
           borderTopWidth: 1,
-          height: 70,
-          paddingBottom: 10,
+          height: Platform.OS === 'web' ? 60 : 85,
+          paddingBottom: Platform.OS === 'web' ? 8 : 28,
           paddingTop: 10,
         },
         tabBarActiveTintColor: Colors.dark.primary,
