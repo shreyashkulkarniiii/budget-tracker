@@ -6,71 +6,183 @@ import {
   TouchableOpacity,
   ScrollView,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { router } from 'expo-router';
 import { supabase, type Category } from '@/lib/supabase';
 import { Colors, Spacing, BorderRadius, Typography } from '@/constants/theme';
 import { Mail, Check, X, ArrowLeft, RefreshCw } from 'lucide-react-native';
 
+const GOOGLE_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID!;
+const REDIRECT_URI = process.env.EXPO_PUBLIC_REDIRECT_URI || 'https://budget-tracker-rho-two.vercel.app/gmail-callback';
+const SCOPES = 'https://www.googleapis.com/auth/gmail.readonly';
+
+// Only scan from March 9 2026 onwards
+const START_DATE = new Date('2026-03-09T00:00:00.000Z');
+
 type UPITransaction = {
   id: string;
   amount: number;
   merchant: string;
   date: string;
-  source: 'GPay' | 'PhonePe' | 'Paytm';
+  source: string;
   category: Category;
   selected: boolean;
 };
 
+function decodeBase64(str: string): string {
+  try {
+    return decodeURIComponent(
+      atob(str.replace(/-/g, '+').replace(/_/g, '/'))
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+  } catch {
+    return '';
+  }
+}
+
+function autoCategory(merchant: string): Category {
+  const m = merchant.toLowerCase();
+  if (m.includes('swiggy') || m.includes('zomato') || m.includes('restaurant') || m.includes('food') || m.includes('cafe') || m.includes('pizza') || m.includes('burger')) return 'Food';
+  if (m.includes('uber') || m.includes('ola') || m.includes('metro') || m.includes('rapido') || m.includes('bus') || m.includes('railway') || m.includes('irctc')) return 'Transport';
+  if (m.includes('amazon') || m.includes('flipkart') || m.includes('myntra') || m.includes('ajio') || m.includes('nykaa') || m.includes('shop')) return 'Shopping';
+  if (m.includes('netflix') || m.includes('spotify') || m.includes('hotstar') || m.includes('prime') || m.includes('movie') || m.includes('bookmyshow')) return 'Entertainment';
+  if (m.includes('electricity') || m.includes('water') || m.includes('gas') || m.includes('internet') || m.includes('mobile') || m.includes('recharge') || m.includes('bill')) return 'Bills';
+  if (m.includes('pharmacy') || m.includes('hospital') || m.includes('doctor') || m.includes('medical') || m.includes('health') || m.includes('clinic')) return 'Health';
+  return 'Others';
+}
+
+function parseUPIEmail(subject: string, body: string, date: string): UPITransaction | null {
+  const decodedBody = decodeBase64(body);
+  const fullText = `${subject} ${decodedBody}`;
+  let amount = 0;
+  let merchant = '';
+  let source = '';
+
+  const amountMatch = fullText.match(/(?:Rs\.?|INR|₹)\s*([\d,]+(?:\.\d{2})?)/i);
+  if (amountMatch) amount = parseFloat(amountMatch[1].replace(/,/g, ''));
+
+  if (fullText.includes('GPay') || fullText.includes('Google Pay')) {
+    source = 'GPay';
+    const m = fullText.match(/(?:to|paid to)\s+([A-Za-z0-9 &.'-]+?)(?:\s+(?:on|via|using|for)|$)/i);
+    if (m) merchant = m[1].trim();
+  } else if (fullText.includes('PhonePe') || fullText.includes('PHONEPE')) {
+    source = 'PhonePe';
+    const m = fullText.match(/(?:to|paid to|sent to)\s+([A-Za-z0-9 &.'-]+?)(?:\s+(?:on|via|using|from)|$)/i);
+    if (m) merchant = m[1].trim();
+  } else if (fullText.includes('Paytm') || fullText.includes('PAYTM')) {
+    source = 'Paytm';
+    const m = fullText.match(/(?:to|paid to|payment of)\s+([A-Za-z0-9 &.'-]+?)(?:\s+(?:on|via|using|was)|$)/i);
+    if (m) merchant = m[1].trim();
+  } else if (fullText.includes('UPI') || fullText.includes('debited')) {
+    source = 'UPI';
+    const m = fullText.match(/(?:to|VPA)\s+([A-Za-z0-9@._-]+)/i);
+    if (m) merchant = m[1].trim();
+  }
+
+  if (!amount || !merchant || !source) return null;
+
+  return {
+    id: Math.random().toString(36).substr(2, 9),
+    amount,
+    merchant: merchant.substring(0, 50),
+    date: new Date(date).toISOString(),
+    source,
+    category: autoCategory(merchant),
+    selected: true,
+  };
+}
+
 export default function GmailImport() {
+  const [scanning, setScanning] = useState(false);
   const [loading, setLoading] = useState(false);
   const [transactions, setTransactions] = useState<UPITransaction[]>([]);
-  const [scanning, setScanning] = useState(false);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
 
-  const mockScanEmails = () => {
+  const handleGoogleLogin = () => {
+    const authUrl =
+      `https://accounts.google.com/o/oauth2/v2/auth?` +
+      `client_id=${GOOGLE_CLIENT_ID}` +
+      `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+      `&response_type=token` +
+      `&scope=${encodeURIComponent(SCOPES)}` +
+      `&prompt=consent`;
+
+    // Open Google OAuth in same window - callback will bring token back
+    window.location.href = authUrl;
+  };
+
+  // Check if we have a token in the URL hash (after OAuth redirect)
+  const checkTokenFromUrl = () => {
+    const hash = window.location.hash;
+    if (hash.includes('access_token')) {
+      const params = new URLSearchParams(hash.replace('#', ''));
+      const token = params.get('access_token');
+      if (token) {
+        setAccessToken(token);
+        // Clean up URL
+        window.history.replaceState({}, document.title, window.location.pathname);
+        return token;
+      }
+    }
+    return null;
+  };
+
+  const scanEmails = async () => {
+    const token = accessToken || checkTokenFromUrl();
+    if (!token) {
+      handleGoogleLogin();
+      return;
+    }
+
     setScanning(true);
-    setTimeout(() => {
-      const mockTransactions: UPITransaction[] = [
-        {
-          id: '1',
-          amount: 450,
-          merchant: 'Swiggy',
-          date: new Date().toISOString(),
-          source: 'GPay',
-          category: 'Food',
-          selected: true,
-        },
-        {
-          id: '2',
-          amount: 50,
-          merchant: 'Delhi Metro',
-          date: new Date(Date.now() - 86400000).toISOString(),
-          source: 'PhonePe',
-          category: 'Transport',
-          selected: true,
-        },
-        {
-          id: '3',
-          amount: 1299,
-          merchant: 'Amazon',
-          date: new Date(Date.now() - 172800000).toISOString(),
-          source: 'Paytm',
-          category: 'Shopping',
-          selected: true,
-        },
-        {
-          id: '4',
-          amount: 299,
-          merchant: 'BookMyShow',
-          date: new Date(Date.now() - 259200000).toISOString(),
-          source: 'GPay',
-          category: 'Entertainment',
-          selected: true,
-        },
-      ];
-      setTransactions(mockTransactions);
+    try {
+      // Search for UPI emails from March 9 2026 onwards
+      const after = Math.floor(START_DATE.getTime() / 1000);
+      const query = encodeURIComponent(`(GPay OR PhonePe OR Paytm OR UPI OR "debited") after:${after}`);
+      const listRes = await fetch(
+        `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${query}&maxResults=50`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const listData = await listRes.json();
+
+      if (!listData.messages || listData.messages.length === 0) {
+        Alert.alert('No Transactions Found', 'No UPI transaction emails found from 9th March 2026 onwards.');
+        setScanning(false);
+        return;
+      }
+
+      const parsed: UPITransaction[] = [];
+
+      for (const msg of listData.messages) {
+        const msgRes = await fetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=full`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+        const msgData = await msgRes.json();
+
+        const headers = msgData.payload?.headers || [];
+        const subject = headers.find((h: any) => h.name === 'Subject')?.value || '';
+        const dateStr = headers.find((h: any) => h.name === 'Date')?.value || '';
+        const body = msgData.payload?.body?.data || msgData.payload?.parts?.[0]?.body?.data || '';
+
+        const transaction = parseUPIEmail(subject, body, dateStr);
+        if (transaction) parsed.push(transaction);
+      }
+
+      if (parsed.length === 0) {
+        Alert.alert('No Transactions Found', 'Could not parse any UPI transactions from your emails.');
+      } else {
+        setTransactions(parsed);
+      }
+    } catch (error) {
+      console.error('Error scanning emails:', error);
+      Alert.alert('Error', 'Failed to scan emails. Please try again.');
+    } finally {
       setScanning(false);
-    }, 2000);
+    }
   };
 
   const toggleTransaction = (id: string) => {
@@ -86,54 +198,47 @@ export default function GmailImport() {
   };
 
   const importSelected = async () => {
-    const selectedTransactions = transactions.filter((t) => t.selected);
-    if (selectedTransactions.length === 0) {
+    const selected = transactions.filter((t) => t.selected);
+    if (selected.length === 0) {
       Alert.alert('No Transactions', 'Please select at least one transaction to import');
       return;
     }
 
     setLoading(true);
     try {
-      const expensesToInsert = selectedTransactions.map((t) => ({
-        amount: t.amount,
-        category: t.category,
-        merchant: t.merchant,
-        transaction_date: t.date,
-        is_imported: true,
-        import_source: t.source,
-      }));
-
-      const { error } = await supabase.from('expenses').insert(expensesToInsert);
-
+      const { error } = await supabase.from('expenses').insert(
+        selected.map((t) => ({
+          amount: t.amount,
+          category: t.category,
+          merchant: t.merchant,
+          transaction_date: t.date,
+          is_imported: true,
+          import_source: t.source,
+        }))
+      );
       if (error) throw error;
 
       Alert.alert(
-        'Success',
-        `Imported ${selectedTransactions.length} transaction${selectedTransactions.length > 1 ? 's' : ''}`,
+        'Success! 🎉',
+        `Imported ${selected.length} transaction${selected.length > 1 ? 's' : ''}`,
         [{ text: 'OK', onPress: () => router.back() }]
       );
     } catch (error) {
-      console.error('Error importing transactions:', error);
-      Alert.alert('Error', 'Failed to import transactions');
+      console.error('Error importing:', error);
+      Alert.alert('Error', 'Failed to import transactions. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  const formatCurrency = (amount: number) => {
-    return `₹${amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
-  };
+  const formatCurrency = (amount: number) =>
+    `₹${amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')}`;
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-IN', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
+  const formatDate = (dateStr: string) =>
+    new Date(dateStr).toLocaleDateString('en-IN', {
+      day: 'numeric', month: 'short', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
     });
-  };
 
   return (
     <View style={styles.container}>
@@ -143,7 +248,7 @@ export default function GmailImport() {
         </TouchableOpacity>
         <View style={styles.headerContent}>
           <Text style={styles.headerTitle}>Gmail UPI Import</Text>
-          <Text style={styles.headerSubtitle}>Import from GPay, PhonePe, Paytm</Text>
+          <Text style={styles.headerSubtitle}>From 9th March 2026 onwards</Text>
         </View>
       </View>
 
@@ -151,29 +256,26 @@ export default function GmailImport() {
         {transactions.length === 0 ? (
           <View style={styles.emptyState}>
             <Mail size={64} color={Colors.dark.textSecondary} />
-            <Text style={styles.emptyTitle}>Scan UPI Emails</Text>
+            <Text style={styles.emptyTitle}>Import UPI Transactions</Text>
             <Text style={styles.emptyText}>
-              This feature will scan your Gmail for UPI transaction emails from GPay,
-              PhonePe, and Paytm
-            </Text>
-            <Text style={styles.noteText}>
-              Note: Gmail API integration requires OAuth setup. This is a demo showing how
-              the import preview would work.
+              Connect your Gmail to automatically import UPI payments from GPay, PhonePe, and Paytm made from 9th March 2026 onwards.
             </Text>
             <TouchableOpacity
               style={styles.scanButton}
-              onPress={mockScanEmails}
+              onPress={scanEmails}
               disabled={scanning}
             >
               {scanning ? (
                 <>
-                  <RefreshCw size={20} color={Colors.dark.background} />
-                  <Text style={styles.scanButtonText}>Scanning...</Text>
+                  <ActivityIndicator color={Colors.dark.background} size="small" />
+                  <Text style={styles.scanButtonText}>Scanning Gmail...</Text>
                 </>
               ) : (
                 <>
                   <Mail size={20} color={Colors.dark.background} />
-                  <Text style={styles.scanButtonText}>Scan Emails (Demo)</Text>
+                  <Text style={styles.scanButtonText}>
+                    {accessToken ? 'Scan UPI Emails' : 'Connect Gmail & Scan'}
+                  </Text>
                 </>
               )}
             </TouchableOpacity>
@@ -184,83 +286,48 @@ export default function GmailImport() {
               <Text style={styles.previewTitle}>
                 Found {transactions.length} transaction{transactions.length > 1 ? 's' : ''}
               </Text>
-              <Text style={styles.previewSubtitle}>
-                Review and select to import
-              </Text>
+              <Text style={styles.previewSubtitle}>Review and select to import</Text>
             </View>
 
-            {transactions.map((transaction) => (
+            {transactions.map((t) => (
               <View
-                key={transaction.id}
-                style={[
-                  styles.transactionCard,
-                  !transaction.selected && styles.transactionCardDisabled,
-                ]}
+                key={t.id}
+                style={[styles.transactionCard, !t.selected && styles.transactionCardDisabled]}
               >
-                <TouchableOpacity
-                  style={styles.checkbox}
-                  onPress={() => toggleTransaction(transaction.id)}
-                >
-                  <View
-                    style={[
-                      styles.checkboxInner,
-                      transaction.selected && styles.checkboxSelected,
-                    ]}
-                  >
-                    {transaction.selected && (
-                      <Check size={16} color={Colors.dark.background} />
-                    )}
+                <TouchableOpacity style={styles.checkbox} onPress={() => toggleTransaction(t.id)}>
+                  <View style={[styles.checkboxInner, t.selected && styles.checkboxSelected]}>
+                    {t.selected && <Check size={16} color={Colors.dark.background} />}
                   </View>
                 </TouchableOpacity>
 
                 <View style={styles.transactionInfo}>
                   <View style={styles.transactionRow}>
-                    <Text style={styles.merchant}>{transaction.merchant}</Text>
-                    <Text style={styles.amount}>
-                      {formatCurrency(transaction.amount)}
-                    </Text>
+                    <Text style={styles.merchant}>{t.merchant}</Text>
+                    <Text style={styles.amount}>{formatCurrency(t.amount)}</Text>
                   </View>
                   <View style={styles.transactionRow}>
-                    <Text style={styles.source}>{transaction.source}</Text>
-                    <Text style={styles.date}>{formatDate(transaction.date)}</Text>
+                    <Text style={styles.source}>{t.source}</Text>
+                    <Text style={styles.date}>{formatDate(t.date)}</Text>
                   </View>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    style={styles.categorySelector}
-                  >
-                    {['Food', 'Transport', 'Shopping', 'Entertainment', 'Bills', 'Health', 'Others'].map(
-                      (cat) => (
-                        <TouchableOpacity
-                          key={cat}
-                          style={[
-                            styles.categoryChip,
-                            transaction.category === cat && styles.categoryChipSelected,
-                          ]}
-                          onPress={() => updateCategory(transaction.id, cat as Category)}
-                        >
-                          <Text
-                            style={[
-                              styles.categoryChipText,
-                              transaction.category === cat &&
-                                styles.categoryChipTextSelected,
-                            ]}
-                          >
-                            {cat}
-                          </Text>
-                        </TouchableOpacity>
-                      )
-                    )}
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categorySelector}>
+                    {(['Food', 'Transport', 'Shopping', 'Entertainment', 'Bills', 'Health', 'Others'] as Category[]).map((cat) => (
+                      <TouchableOpacity
+                        key={cat}
+                        style={[styles.categoryChip, t.category === cat && styles.categoryChipSelected]}
+                        onPress={() => updateCategory(t.id, cat)}
+                      >
+                        <Text style={[styles.categoryChipText, t.category === cat && styles.categoryChipTextSelected]}>
+                          {cat}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
                   </ScrollView>
                 </View>
               </View>
             ))}
 
             <View style={styles.actionButtons}>
-              <TouchableOpacity
-                style={styles.cancelButton}
-                onPress={() => setTransactions([])}
-              >
+              <TouchableOpacity style={styles.cancelButton} onPress={() => setTransactions([])}>
                 <X size={20} color={Colors.dark.text} />
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
@@ -269,11 +336,13 @@ export default function GmailImport() {
                 onPress={importSelected}
                 disabled={loading}
               >
-                <Check size={20} color={Colors.dark.background} />
+                {loading ? (
+                  <ActivityIndicator color={Colors.dark.background} size="small" />
+                ) : (
+                  <Check size={20} color={Colors.dark.background} />
+                )}
                 <Text style={styles.importButtonText}>
-                  {loading
-                    ? 'Importing...'
-                    : `Import ${transactions.filter((t) => t.selected).length}`}
+                  {loading ? 'Importing...' : `Import ${transactions.filter((t) => t.selected).length}`}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -285,215 +354,104 @@ export default function GmailImport() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.dark.background,
-  },
+  container: { flex: 1, backgroundColor: Colors.dark.background },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingTop: 60,
-    paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.lg,
-    backgroundColor: Colors.dark.surface,
+    flexDirection: 'row', alignItems: 'center',
+    paddingTop: 60, paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.lg, backgroundColor: Colors.dark.surface,
   },
-  backButton: {
-    marginRight: Spacing.md,
-  },
-  headerContent: {
-    flex: 1,
-  },
+  backButton: { marginRight: Spacing.md },
+  headerContent: { flex: 1 },
   headerTitle: {
-    fontSize: Typography.sizes.xxl,
-    fontWeight: Typography.weights.bold,
-    color: Colors.dark.text,
-    marginBottom: Spacing.xs,
+    fontSize: Typography.sizes.xxl, fontWeight: Typography.weights.bold,
+    color: Colors.dark.text, marginBottom: Spacing.xs,
   },
-  headerSubtitle: {
-    fontSize: Typography.sizes.sm,
-    color: Colors.dark.textSecondary,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  emptyState: {
-    padding: Spacing.xl,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
+  headerSubtitle: { fontSize: Typography.sizes.sm, color: Colors.dark.primary },
+  scrollView: { flex: 1 },
+  emptyState: { padding: Spacing.xl, alignItems: 'center', justifyContent: 'center' },
   emptyTitle: {
-    fontSize: Typography.sizes.xl,
-    fontWeight: Typography.weights.bold,
-    color: Colors.dark.text,
-    marginTop: Spacing.lg,
-    marginBottom: Spacing.sm,
+    fontSize: Typography.sizes.xl, fontWeight: Typography.weights.bold,
+    color: Colors.dark.text, marginTop: Spacing.lg, marginBottom: Spacing.sm,
   },
   emptyText: {
-    fontSize: Typography.sizes.md,
-    color: Colors.dark.textSecondary,
-    textAlign: 'center',
-    marginBottom: Spacing.md,
-    lineHeight: 22,
-  },
-  noteText: {
-    fontSize: Typography.sizes.sm,
-    color: Colors.dark.textSecondary,
-    textAlign: 'center',
-    fontStyle: 'italic',
-    marginBottom: Spacing.lg,
-    paddingHorizontal: Spacing.md,
-    lineHeight: 20,
+    fontSize: Typography.sizes.md, color: Colors.dark.textSecondary,
+    textAlign: 'center', marginBottom: Spacing.lg, lineHeight: 22,
   },
   scanButton: {
-    flexDirection: 'row',
-    backgroundColor: Colors.dark.primary,
-    borderRadius: BorderRadius.md,
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.lg,
-    alignItems: 'center',
-    gap: Spacing.sm,
+    flexDirection: 'row', backgroundColor: Colors.dark.primary,
+    borderRadius: BorderRadius.md, paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg, alignItems: 'center', gap: Spacing.sm,
   },
   scanButtonText: {
-    fontSize: Typography.sizes.md,
-    fontWeight: Typography.weights.bold,
+    fontSize: Typography.sizes.md, fontWeight: Typography.weights.bold,
     color: Colors.dark.background,
   },
-  previewContainer: {
-    padding: Spacing.lg,
-  },
-  previewHeader: {
-    marginBottom: Spacing.lg,
-  },
+  previewContainer: { padding: Spacing.lg },
+  previewHeader: { marginBottom: Spacing.lg },
   previewTitle: {
-    fontSize: Typography.sizes.xl,
-    fontWeight: Typography.weights.bold,
-    color: Colors.dark.text,
-    marginBottom: Spacing.xs,
+    fontSize: Typography.sizes.xl, fontWeight: Typography.weights.bold,
+    color: Colors.dark.text, marginBottom: Spacing.xs,
   },
-  previewSubtitle: {
-    fontSize: Typography.sizes.sm,
-    color: Colors.dark.textSecondary,
-  },
+  previewSubtitle: { fontSize: Typography.sizes.sm, color: Colors.dark.textSecondary },
   transactionCard: {
-    flexDirection: 'row',
-    backgroundColor: Colors.dark.surface,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    marginBottom: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.dark.border,
+    flexDirection: 'row', backgroundColor: Colors.dark.surface,
+    borderRadius: BorderRadius.lg, padding: Spacing.md,
+    marginBottom: Spacing.md, borderWidth: 1, borderColor: Colors.dark.border,
   },
-  transactionCardDisabled: {
-    opacity: 0.5,
-  },
-  checkbox: {
-    marginRight: Spacing.md,
-    justifyContent: 'flex-start',
-    paddingTop: 2,
-  },
+  transactionCardDisabled: { opacity: 0.5 },
+  checkbox: { marginRight: Spacing.md, justifyContent: 'flex-start', paddingTop: 2 },
   checkboxInner: {
-    width: 24,
-    height: 24,
-    borderRadius: BorderRadius.sm,
-    borderWidth: 2,
-    borderColor: Colors.dark.border,
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: 24, height: 24, borderRadius: BorderRadius.sm,
+    borderWidth: 2, borderColor: Colors.dark.border,
+    alignItems: 'center', justifyContent: 'center',
   },
-  checkboxSelected: {
-    backgroundColor: Colors.dark.primary,
-    borderColor: Colors.dark.primary,
-  },
-  transactionInfo: {
-    flex: 1,
-  },
+  checkboxSelected: { backgroundColor: Colors.dark.primary, borderColor: Colors.dark.primary },
+  transactionInfo: { flex: 1 },
   transactionRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: Spacing.xs,
+    flexDirection: 'row', justifyContent: 'space-between',
+    alignItems: 'center', marginBottom: Spacing.xs,
   },
   merchant: {
-    fontSize: Typography.sizes.md,
-    fontWeight: Typography.weights.semibold,
+    fontSize: Typography.sizes.md, fontWeight: Typography.weights.semibold,
     color: Colors.dark.text,
   },
   amount: {
-    fontSize: Typography.sizes.lg,
-    fontWeight: Typography.weights.bold,
+    fontSize: Typography.sizes.lg, fontWeight: Typography.weights.bold,
     color: Colors.dark.text,
   },
   source: {
-    fontSize: Typography.sizes.xs,
-    color: Colors.dark.primary,
+    fontSize: Typography.sizes.xs, color: Colors.dark.primary,
     fontWeight: Typography.weights.semibold,
   },
-  date: {
-    fontSize: Typography.sizes.xs,
-    color: Colors.dark.textSecondary,
-  },
-  categorySelector: {
-    marginTop: Spacing.sm,
-  },
+  date: { fontSize: Typography.sizes.xs, color: Colors.dark.textSecondary },
+  categorySelector: { marginTop: Spacing.sm },
   categoryChip: {
-    backgroundColor: Colors.dark.surfaceLight,
-    borderRadius: BorderRadius.full,
-    paddingVertical: 6,
-    paddingHorizontal: Spacing.sm,
-    marginRight: Spacing.xs,
-    borderWidth: 1,
-    borderColor: Colors.dark.border,
+    backgroundColor: Colors.dark.surfaceLight, borderRadius: BorderRadius.full,
+    paddingVertical: 6, paddingHorizontal: Spacing.sm,
+    marginRight: Spacing.xs, borderWidth: 1, borderColor: Colors.dark.border,
   },
-  categoryChipSelected: {
-    backgroundColor: Colors.dark.primary,
-    borderColor: Colors.dark.primary,
-  },
-  categoryChipText: {
-    fontSize: Typography.sizes.xs,
-    color: Colors.dark.textSecondary,
-  },
-  categoryChipTextSelected: {
-    color: Colors.dark.background,
-    fontWeight: Typography.weights.semibold,
-  },
-  actionButtons: {
-    flexDirection: 'row',
-    gap: Spacing.md,
-    marginTop: Spacing.lg,
-  },
+  categoryChipSelected: { backgroundColor: Colors.dark.primary, borderColor: Colors.dark.primary },
+  categoryChipText: { fontSize: Typography.sizes.xs, color: Colors.dark.textSecondary },
+  categoryChipTextSelected: { color: Colors.dark.background, fontWeight: Typography.weights.semibold },
+  actionButtons: { flexDirection: 'row', gap: Spacing.md, marginTop: Spacing.lg },
   cancelButton: {
-    flex: 1,
-    flexDirection: 'row',
-    backgroundColor: Colors.dark.surface,
-    borderRadius: BorderRadius.md,
-    paddingVertical: Spacing.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.sm,
-    borderWidth: 1,
-    borderColor: Colors.dark.border,
+    flex: 1, flexDirection: 'row', backgroundColor: Colors.dark.surface,
+    borderRadius: BorderRadius.md, paddingVertical: Spacing.md,
+    alignItems: 'center', justifyContent: 'center',
+    gap: Spacing.sm, borderWidth: 1, borderColor: Colors.dark.border,
   },
   cancelButtonText: {
-    fontSize: Typography.sizes.md,
-    fontWeight: Typography.weights.bold,
+    fontSize: Typography.sizes.md, fontWeight: Typography.weights.bold,
     color: Colors.dark.text,
   },
   importButton: {
-    flex: 1,
-    flexDirection: 'row',
-    backgroundColor: Colors.dark.primary,
-    borderRadius: BorderRadius.md,
-    paddingVertical: Spacing.md,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: Spacing.sm,
+    flex: 1, flexDirection: 'row', backgroundColor: Colors.dark.primary,
+    borderRadius: BorderRadius.md, paddingVertical: Spacing.md,
+    alignItems: 'center', justifyContent: 'center', gap: Spacing.sm,
   },
-  importButtonDisabled: {
-    opacity: 0.5,
-  },
+  importButtonDisabled: { opacity: 0.5 },
   importButtonText: {
-    fontSize: Typography.sizes.md,
-    fontWeight: Typography.weights.bold,
+    fontSize: Typography.sizes.md, fontWeight: Typography.weights.bold,
     color: Colors.dark.background,
   },
 });
