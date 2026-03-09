@@ -110,8 +110,27 @@ export default function GmailImport() {
       `&scope=${encodeURIComponent(SCOPES)}` +
       `&prompt=consent`;
 
-    // Open Google OAuth in same window - callback will bring token back
-    window.location.href = authUrl;
+    // Open in popup so main app stays open
+    const popup = window.open(authUrl, 'gmail-auth', 'width=500,height=600');
+
+    // Poll for token in popup URL
+    const interval = setInterval(() => {
+      try {
+        if (popup && popup.location.href.includes('access_token')) {
+          const hash = popup.location.hash;
+          const params = new URLSearchParams(hash.replace('#', ''));
+          const token = params.get('access_token');
+          if (token) {
+            setAccessToken(token);
+            popup.close();
+            clearInterval(interval);
+          }
+        }
+        if (popup && popup.closed) clearInterval(interval);
+      } catch (e) {
+        // Cross-origin error while popup is on Google - ignore
+      }
+    }, 500);
   };
 
   // Check if we have a token in the URL hash (after OAuth redirect)
