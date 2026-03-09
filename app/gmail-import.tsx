@@ -131,11 +131,13 @@ export default function GmailImport() {
   };
 
   const scanEmails = async () => {
-    const token = accessToken || checkTokenFromUrl();
+    const storedToken = typeof window !== 'undefined' ? sessionStorage.getItem('gmail_access_token') : null;
+    const token = accessToken || storedToken;
     if (!token) {
       handleGoogleLogin();
       return;
     }
+    if (storedToken) setAccessToken(storedToken);
 
     setScanning(true);
     try {
