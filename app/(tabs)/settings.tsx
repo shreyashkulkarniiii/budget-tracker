@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, Modal } from 'react-native';
 import { router } from 'expo-router';
 import { supabase } from '@/lib/supabase';
 import { Colors, Spacing, BorderRadius, Typography } from '@/constants/theme';
@@ -8,27 +8,16 @@ import type { User as SupabaseUser } from '@supabase/supabase-js';
 
 export default function Settings() {
   const [user, setUser] = useState<SupabaseUser | null>(null);
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data: { user } }) => setUser(user));
   }, []);
 
-  const handleLogout = () => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: async () => {
-            await supabase.auth.signOut();
-            router.replace('/login');
-          },
-        },
-      ]
-    );
+  const confirmLogout = async () => {
+    setShowLogoutModal(false);
+    await supabase.auth.signOut();
+    router.replace('/login');
   };
 
   const avatar = user?.user_metadata?.avatar_url;
@@ -91,10 +80,28 @@ export default function Settings() {
       </View>
 
       {/* Logout Button */}
-      <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+      <TouchableOpacity style={styles.logoutButton} onPress={() => setShowLogoutModal(true)}>
         <LogOut size={20} color={Colors.dark.error} />
         <Text style={styles.logoutText}>Logout</Text>
       </TouchableOpacity>
+
+      {/* Logout Confirmation Modal */}
+      <Modal visible={showLogoutModal} transparent animationType="fade" onRequestClose={() => setShowLogoutModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>Logout</Text>
+            <Text style={styles.modalMessage}>Are you sure you want to logout?</Text>
+            <View style={styles.modalButtons}>
+              <TouchableOpacity style={styles.modalCancel} onPress={() => setShowLogoutModal(false)}>
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalConfirm} onPress={confirmLogout}>
+                <Text style={styles.modalConfirmText}>Logout</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -124,8 +131,7 @@ const styles = StyleSheet.create({
   profileEmail: { fontSize: Typography.sizes.sm, color: Colors.dark.textSecondary },
   menuSection: {
     marginHorizontal: Spacing.lg, backgroundColor: Colors.dark.surface,
-    borderRadius: BorderRadius.xl, borderWidth: 1, borderColor: Colors.dark.border,
-    overflow: 'hidden',
+    borderRadius: BorderRadius.xl, borderWidth: 1, borderColor: Colors.dark.border, overflow: 'hidden',
   },
   menuItem: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
@@ -142,4 +148,22 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: Colors.dark.error, gap: Spacing.sm,
   },
   logoutText: { fontSize: Typography.sizes.md, fontWeight: Typography.weights.bold, color: Colors.dark.error },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', alignItems: 'center', justifyContent: 'center' },
+  modalBox: {
+    backgroundColor: Colors.dark.surface, borderRadius: BorderRadius.xl,
+    padding: Spacing.xl, width: '80%', borderWidth: 1, borderColor: Colors.dark.border,
+  },
+  modalTitle: { fontSize: Typography.sizes.xl, fontWeight: Typography.weights.bold, color: Colors.dark.text, marginBottom: Spacing.sm },
+  modalMessage: { fontSize: Typography.sizes.md, color: Colors.dark.textSecondary, marginBottom: Spacing.xl },
+  modalButtons: { flexDirection: 'row', gap: Spacing.md },
+  modalCancel: {
+    flex: 1, backgroundColor: Colors.dark.surfaceLight, borderRadius: BorderRadius.md,
+    padding: Spacing.md, alignItems: 'center', borderWidth: 1, borderColor: Colors.dark.border,
+  },
+  modalCancelText: { fontSize: Typography.sizes.md, fontWeight: Typography.weights.semibold, color: Colors.dark.text },
+  modalConfirm: {
+    flex: 1, backgroundColor: Colors.dark.error, borderRadius: BorderRadius.md,
+    padding: Spacing.md, alignItems: 'center',
+  },
+  modalConfirmText: { fontSize: Typography.sizes.md, fontWeight: Typography.weights.bold, color: '#FFFFFF' },
 });
