@@ -13,7 +13,8 @@ import { supabase, type Expense, CATEGORIES } from '@/lib/supabase';
 import { Colors, Spacing, BorderRadius, Typography } from '@/constants/theme';
 
 const { width } = Dimensions.get('window');
-const chartWidth = width - Spacing.lg * 2;
+// Reduce chart width to prevent last bar from being cut off
+const chartWidth = width - Spacing.lg * 2 - 16;
 
 export default function Analytics() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -70,21 +71,13 @@ export default function Analytics() {
 
     return {
       labels: days,
-      datasets: [
-        {
-          data: weekData.length > 0 ? weekData : [0],
-        },
-      ],
+      datasets: [{ data: weekData.length > 0 ? weekData : [0] }],
     };
   };
 
   const getCategoryData = () => {
     const categoryTotals: { [key: string]: number } = {};
-
-    CATEGORIES.forEach((cat) => {
-      categoryTotals[cat] = 0;
-    });
-
+    CATEGORIES.forEach((cat) => { categoryTotals[cat] = 0; });
     expenses.forEach((expense) => {
       if (categoryTotals[expense.category] !== undefined) {
         categoryTotals[expense.category] += Number(expense.amount);
@@ -96,23 +89,14 @@ export default function Analytics() {
       .map(([name, value]) => ({
         name,
         population: value,
-        color:
-          Colors.dark.categories[name as keyof typeof Colors.dark.categories],
+        color: Colors.dark.categories[name as keyof typeof Colors.dark.categories],
         legendFontColor: Colors.dark.textSecondary,
-        legendFontSize: 12,
+        legendFontSize: 11,
       }));
 
     return pieData.length > 0
       ? pieData
-      : [
-          {
-            name: 'No Data',
-            population: 1,
-            color: Colors.dark.border,
-            legendFontColor: Colors.dark.textSecondary,
-            legendFontSize: 12,
-          },
-        ];
+      : [{ name: 'No Data', population: 1, color: Colors.dark.border, legendFontColor: Colors.dark.textSecondary, legendFontSize: 11 }];
   };
 
   const getMonthlyTrendData = () => {
@@ -122,15 +106,14 @@ export default function Analytics() {
     expenses.forEach((expense) => {
       const expenseDate = new Date(expense.transaction_date);
       if (expenseDate.getFullYear() === currentYear) {
-        const month = expenseDate.getMonth();
-        monthData[month] += Number(expense.amount);
+        monthData[expenseDate.getMonth()] += Number(expense.amount);
       }
     });
 
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const currentMonth = new Date().getMonth();
-    const last6Months = [];
-    const last6MonthsData = [];
+    const last6Months: string[] = [];
+    const last6MonthsData: number[] = [];
 
     for (let i = 5; i >= 0; i--) {
       const monthIndex = (currentMonth - i + 12) % 12;
@@ -140,11 +123,7 @@ export default function Analytics() {
 
     return {
       labels: last6Months,
-      datasets: [
-        {
-          data: last6MonthsData.some((val) => val > 0) ? last6MonthsData : [0],
-        },
-      ],
+      datasets: [{ data: last6MonthsData.some((val) => val > 0) ? last6MonthsData : [0] }],
     };
   };
 
@@ -155,14 +134,13 @@ export default function Analytics() {
     decimalPlaces: 0,
     color: (opacity = 1) => `rgba(0, 217, 177, ${opacity})`,
     labelColor: (opacity = 1) => `rgba(160, 160, 160, ${opacity})`,
-    style: {
-      borderRadius: BorderRadius.lg,
-    },
+    style: { borderRadius: BorderRadius.lg },
     propsForBackgroundLines: {
       strokeDasharray: '',
       stroke: Colors.dark.border,
       strokeWidth: 1,
     },
+    barPercentage: 0.6,
   };
 
   return (
@@ -175,11 +153,7 @@ export default function Analytics() {
       <ScrollView
         style={styles.scrollView}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={Colors.dark.primary}
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.dark.primary} />
         }
       >
         <View style={styles.chartSection}>
@@ -194,6 +168,7 @@ export default function Analytics() {
               style={styles.chart}
               fromZero
               showValuesOnTopOfBars
+              withInnerLines={true}
             />
           </View>
         </View>
@@ -222,63 +197,40 @@ export default function Analytics() {
               width={chartWidth}
               height={220}
               yAxisLabel="₹"
-              chartConfig={{
-                ...chartConfig,
-                color: (opacity = 1) => `rgba(0, 217, 177, ${opacity})`,
-              }}
+              chartConfig={{ ...chartConfig, color: (opacity = 1) => `rgba(0, 217, 177, ${opacity})` }}
               bezier
               style={styles.chart}
               fromZero
             />
           </View>
         </View>
+        <View style={{ height: 20 }} />
       </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.dark.background,
-  },
+  container: { flex: 1, backgroundColor: Colors.dark.background },
   header: {
-    paddingTop: 60,
-    paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.lg,
-    backgroundColor: Colors.dark.surface,
+    paddingTop: 60, paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.lg, backgroundColor: Colors.dark.surface,
   },
   headerTitle: {
-    fontSize: Typography.sizes.xxl,
-    fontWeight: Typography.weights.bold,
-    color: Colors.dark.text,
-    marginBottom: Spacing.xs,
+    fontSize: Typography.sizes.xxl, fontWeight: Typography.weights.bold,
+    color: Colors.dark.text, marginBottom: Spacing.xs,
   },
-  headerSubtitle: {
-    fontSize: Typography.sizes.sm,
-    color: Colors.dark.textSecondary,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  chartSection: {
-    padding: Spacing.lg,
-  },
+  headerSubtitle: { fontSize: Typography.sizes.sm, color: Colors.dark.textSecondary },
+  scrollView: { flex: 1 },
+  chartSection: { padding: Spacing.lg },
   chartTitle: {
-    fontSize: Typography.sizes.lg,
-    fontWeight: Typography.weights.bold,
-    color: Colors.dark.text,
-    marginBottom: Spacing.md,
+    fontSize: Typography.sizes.lg, fontWeight: Typography.weights.bold,
+    color: Colors.dark.text, marginBottom: Spacing.md,
   },
   chartContainer: {
-    backgroundColor: Colors.dark.surface,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.dark.border,
-    alignItems: 'center',
+    backgroundColor: Colors.dark.surface, borderRadius: BorderRadius.lg,
+    padding: Spacing.md, borderWidth: 1, borderColor: Colors.dark.border,
+    alignItems: 'center', overflow: 'hidden',
   },
-  chart: {
-    borderRadius: BorderRadius.md,
-  },
+  chart: { borderRadius: BorderRadius.md },
 });

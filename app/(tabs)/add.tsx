@@ -30,7 +30,6 @@ export default function AddExpense() {
       Alert.alert('Missing Information', 'Please enter amount and merchant');
       return;
     }
-
     const amountNum = parseFloat(amount);
     if (isNaN(amountNum) || amountNum <= 0) {
       Alert.alert('Invalid Amount', 'Please enter a valid amount');
@@ -38,7 +37,6 @@ export default function AddExpense() {
     }
 
     setLoading(true);
-
     try {
       const { error } = await supabase.from('expenses').insert({
         amount: amountNum,
@@ -48,7 +46,6 @@ export default function AddExpense() {
         transaction_date: new Date(transactionDate).toISOString(),
         is_imported: false,
       });
-
       if (error) throw error;
 
       setAmount('');
@@ -80,13 +77,29 @@ export default function AddExpense() {
       </View>
 
       <ScrollView style={styles.scrollView}>
+        {/* Prominent Gmail Import Banner */}
         <TouchableOpacity
-          style={styles.gmailImportButton}
+          style={styles.gmailBanner}
           onPress={() => router.push('/gmail-import')}
+          activeOpacity={0.85}
         >
-          <Mail size={20} color={Colors.dark.primary} />
-          <Text style={styles.gmailImportButtonText}>Import from Gmail (UPI)</Text>
+          <View style={styles.gmailBannerLeft}>
+            <View style={styles.gmailIconContainer}>
+              <Mail size={24} color={Colors.dark.background} />
+            </View>
+            <View>
+              <Text style={styles.gmailBannerTitle}>Import from Gmail</Text>
+              <Text style={styles.gmailBannerSubtitle}>Auto-import UPI transactions</Text>
+            </View>
+          </View>
+          <Text style={styles.gmailBannerArrow}>→</Text>
         </TouchableOpacity>
+
+        <View style={styles.dividerRow}>
+          <View style={styles.divider} />
+          <Text style={styles.dividerText}>or add manually</Text>
+          <View style={styles.divider} />
+        </View>
 
         <View style={styles.form}>
           <View style={styles.inputGroup}>
@@ -118,32 +131,19 @@ export default function AddExpense() {
               {CATEGORIES.map((category) => (
                 <TouchableOpacity
                   key={category}
-                  style={[
-                    styles.categoryChip,
-                    selectedCategory === category && styles.categoryChipSelected,
-                  ]}
+                  style={[styles.categoryChip, selectedCategory === category && styles.categoryChipSelected]}
                   onPress={() => setSelectedCategory(category)}
                 >
                   <View
                     style={[
                       styles.categoryDot,
-                      {
-                        backgroundColor:
-                          Colors.dark.categories[category as keyof typeof Colors.dark.categories],
-                      },
+                      { backgroundColor: Colors.dark.categories[category as keyof typeof Colors.dark.categories] },
                     ]}
                   />
-                  <Text
-                    style={[
-                      styles.categoryText,
-                      selectedCategory === category && styles.categoryTextSelected,
-                    ]}
-                  >
+                  <Text style={[styles.categoryText, selectedCategory === category && styles.categoryTextSelected]}>
                     {category}
                   </Text>
-                  {selectedCategory === category && (
-                    <Check size={16} color={Colors.dark.primary} />
-                  )}
+                  {selectedCategory === category && <Check size={16} color={Colors.dark.primary} />}
                 </TouchableOpacity>
               ))}
             </View>
@@ -179,9 +179,7 @@ export default function AddExpense() {
             onPress={handleSubmit}
             disabled={loading}
           >
-            <Text style={styles.submitButtonText}>
-              {loading ? 'Adding...' : 'Add Expense'}
-            </Text>
+            <Text style={styles.submitButtonText}>{loading ? 'Adding...' : 'Add Expense'}</Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -190,105 +188,65 @@ export default function AddExpense() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.dark.background,
-  },
+  container: { flex: 1, backgroundColor: Colors.dark.background },
   header: {
-    paddingTop: 60,
-    paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.lg,
-    backgroundColor: Colors.dark.surface,
+    paddingTop: 60, paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.lg, backgroundColor: Colors.dark.surface,
   },
   headerTitle: {
-    fontSize: Typography.sizes.xxl,
-    fontWeight: Typography.weights.bold,
-    color: Colors.dark.text,
-    marginBottom: Spacing.xs,
+    fontSize: Typography.sizes.xxl, fontWeight: Typography.weights.bold,
+    color: Colors.dark.text, marginBottom: Spacing.xs,
   },
-  headerSubtitle: {
-    fontSize: Typography.sizes.sm,
-    color: Colors.dark.textSecondary,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  form: {
-    padding: Spacing.lg,
-  },
-  inputGroup: {
-    marginBottom: Spacing.lg,
-  },
-  label: {
-    fontSize: Typography.sizes.sm,
-    fontWeight: Typography.weights.semibold,
-    color: Colors.dark.text,
-    marginBottom: Spacing.sm,
-  },
-  input: {
-    backgroundColor: Colors.dark.surface,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
-    fontSize: Typography.sizes.md,
-    color: Colors.dark.text,
-    borderWidth: 1,
-    borderColor: Colors.dark.border,
-  },
-  textArea: {
-    height: 80,
-    textAlignVertical: 'top',
-  },
-  hint: {
-    fontSize: Typography.sizes.xs,
-    color: Colors.dark.textSecondary,
-    marginTop: Spacing.xs,
-  },
-  categoryGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: Spacing.sm,
-  },
-  categoryChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: Colors.dark.surface,
-    borderRadius: BorderRadius.full,
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.dark.border,
-    gap: Spacing.xs,
-  },
-  categoryChipSelected: {
-    backgroundColor: Colors.dark.surfaceLight,
-    borderColor: Colors.dark.primary,
-  },
-  categoryDot: {
-    width: 8,
-    height: 8,
-    borderRadius: BorderRadius.full,
-  },
-  categoryText: {
-    fontSize: Typography.sizes.sm,
-    color: Colors.dark.textSecondary,
-  },
-  categoryTextSelected: {
-    color: Colors.dark.text,
-    fontWeight: Typography.weights.semibold,
-  },
-  submitButton: {
+  headerSubtitle: { fontSize: Typography.sizes.sm, color: Colors.dark.textSecondary },
+  scrollView: { flex: 1 },
+  gmailBanner: {
+    margin: Spacing.lg,
+    marginBottom: 0,
     backgroundColor: Colors.dark.primary,
-    borderRadius: BorderRadius.md,
-    padding: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: Spacing.md,
+    justifyContent: 'space-between',
   },
-  submitButtonDisabled: {
-    opacity: 0.5,
+  gmailBannerLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
+  gmailIconContainer: {
+    width: 44, height: 44, borderRadius: BorderRadius.md,
+    backgroundColor: 'rgba(0,0,0,0.2)', alignItems: 'center', justifyContent: 'center',
   },
-  submitButtonText: {
-    fontSize: Typography.sizes.md,
-    fontWeight: Typography.weights.bold,
+  gmailBannerTitle: {
+    fontSize: Typography.sizes.md, fontWeight: Typography.weights.bold,
     color: Colors.dark.background,
   },
+  gmailBannerSubtitle: { fontSize: Typography.sizes.xs, color: 'rgba(0,0,0,0.6)', marginTop: 2 },
+  gmailBannerArrow: { fontSize: 20, color: Colors.dark.background, fontWeight: Typography.weights.bold },
+  dividerRow: { flexDirection: 'row', alignItems: 'center', marginHorizontal: Spacing.lg, marginVertical: Spacing.lg },
+  divider: { flex: 1, height: 1, backgroundColor: Colors.dark.border },
+  dividerText: { fontSize: Typography.sizes.xs, color: Colors.dark.textSecondary, marginHorizontal: Spacing.sm },
+  form: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg },
+  inputGroup: { marginBottom: Spacing.lg },
+  label: { fontSize: Typography.sizes.sm, fontWeight: Typography.weights.semibold, color: Colors.dark.text, marginBottom: Spacing.sm },
+  input: {
+    backgroundColor: Colors.dark.surface, borderRadius: BorderRadius.md,
+    padding: Spacing.md, fontSize: Typography.sizes.md, color: Colors.dark.text,
+    borderWidth: 1, borderColor: Colors.dark.border,
+  },
+  textArea: { height: 80, textAlignVertical: 'top' },
+  hint: { fontSize: Typography.sizes.xs, color: Colors.dark.textSecondary, marginTop: Spacing.xs },
+  categoryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm },
+  categoryChip: {
+    flexDirection: 'row', alignItems: 'center', backgroundColor: Colors.dark.surface,
+    borderRadius: BorderRadius.full, paddingVertical: Spacing.sm, paddingHorizontal: Spacing.md,
+    borderWidth: 1, borderColor: Colors.dark.border, gap: Spacing.xs,
+  },
+  categoryChipSelected: { backgroundColor: Colors.dark.surfaceLight, borderColor: Colors.dark.primary },
+  categoryDot: { width: 8, height: 8, borderRadius: BorderRadius.full },
+  categoryText: { fontSize: Typography.sizes.sm, color: Colors.dark.textSecondary },
+  categoryTextSelected: { color: Colors.dark.text, fontWeight: Typography.weights.semibold },
+  submitButton: {
+    backgroundColor: Colors.dark.primary, borderRadius: BorderRadius.md,
+    padding: Spacing.md, alignItems: 'center', marginTop: Spacing.md,
+  },
+  submitButtonDisabled: { opacity: 0.5 },
+  submitButtonText: { fontSize: Typography.sizes.md, fontWeight: Typography.weights.bold, color: Colors.dark.background },
 });

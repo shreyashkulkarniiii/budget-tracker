@@ -11,13 +11,11 @@ import {
 import { router } from 'expo-router';
 import { supabase, type Category } from '@/lib/supabase';
 import { Colors, Spacing, BorderRadius, Typography } from '@/constants/theme';
-import { Mail, Check, X, ArrowLeft, RefreshCw } from 'lucide-react-native';
+import { Mail, Check, X, ArrowLeft } from 'lucide-react-native';
 
 const GOOGLE_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID!;
 const REDIRECT_URI = process.env.EXPO_PUBLIC_REDIRECT_URI || 'https://budget-tracker-rho-two.vercel.app/gmail-callback';
 const SCOPES = 'https://www.googleapis.com/auth/gmail.readonly';
-
-// Only scan from March 9 2026 onwards
 const START_DATE = new Date('2026-03-09T00:00:00.000Z');
 
 type UPITransaction = {
@@ -38,9 +36,7 @@ function decodeBase64(str: string): string {
         .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
         .join('')
     );
-  } catch {
-    return '';
-  }
+  } catch { return ''; }
 }
 
 function autoCategory(merchant: string): Category {
@@ -110,10 +106,8 @@ export default function GmailImport() {
       `&scope=${encodeURIComponent(SCOPES)}` +
       `&prompt=consent`;
 
-    // Open in popup so main app stays open
     const popup = window.open(authUrl, 'gmail-auth', 'width=500,height=600');
 
-    // Poll for token in popup URL
     const interval = setInterval(() => {
       try {
         if (popup && popup.location.href.includes('access_token')) {
@@ -124,6 +118,8 @@ export default function GmailImport() {
             setAccessToken(token);
             popup.close();
             clearInterval(interval);
+            // Auto scan after login
+            scanEmailsWithToken(token);
           }
         }
         if (popup && popup.closed) clearInterval(interval);
@@ -133,34 +129,9 @@ export default function GmailImport() {
     }, 500);
   };
 
-  // Check if we have a token in the URL hash (after OAuth redirect)
-  const checkTokenFromUrl = () => {
-    const hash = window.location.hash;
-    if (hash.includes('access_token')) {
-      const params = new URLSearchParams(hash.replace('#', ''));
-      const token = params.get('access_token');
-      if (token) {
-        setAccessToken(token);
-        // Clean up URL
-        window.history.replaceState({}, document.title, window.location.pathname);
-        return token;
-      }
-    }
-    return null;
-  };
-
-  const scanEmails = async () => {
-    const storedToken = typeof window !== 'undefined' ? sessionStorage.getItem('gmail_access_token') : null;
-    const token = accessToken || storedToken;
-    if (!token) {
-      handleGoogleLogin();
-      return;
-    }
-    if (storedToken) setAccessToken(storedToken);
-
+  const scanEmailsWithToken = async (token: string) => {
     setScanning(true);
     try {
-      // Search for UPI emails from March 9 2026 onwards
       const after = Math.floor(START_DATE.getTime() / 1000);
       const query = encodeURIComponent(`(GPay OR PhonePe OR Paytm OR UPI OR "debited") after:${after}`);
       const listRes = await fetch(
@@ -176,19 +147,16 @@ export default function GmailImport() {
       }
 
       const parsed: UPITransaction[] = [];
-
       for (const msg of listData.messages) {
         const msgRes = await fetch(
           `https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}?format=full`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
         const msgData = await msgRes.json();
-
         const headers = msgData.payload?.headers || [];
         const subject = headers.find((h: any) => h.name === 'Subject')?.value || '';
         const dateStr = headers.find((h: any) => h.name === 'Date')?.value || '';
         const body = msgData.payload?.body?.data || msgData.payload?.parts?.[0]?.body?.data || '';
-
         const transaction = parseUPIEmail(subject, body, dateStr);
         if (transaction) parsed.push(transaction);
       }
@@ -200,22 +168,26 @@ export default function GmailImport() {
       }
     } catch (error) {
       console.error('Error scanning emails:', error);
-      Alert.alert('Error', 'Failed to scan emails. Please try again.');
     } finally {
       setScanning(false);
     }
   };
 
+  const scanEmails = async () => {
+    const token = accessToken;
+    if (!token) {
+      handleGoogleLogin();
+      return;
+    }
+    await scanEmailsWithToken(token);
+  };
+
   const toggleTransaction = (id: string) => {
-    setTransactions((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, selected: !t.selected } : t))
-    );
+    setTransactions((prev) => prev.map((t) => (t.id === id ? { ...t, selected: !t.selected } : t)));
   };
 
   const updateCategory = (id: string, category: Category) => {
-    setTransactions((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, category } : t))
-    );
+    setTransactions((prev) => prev.map((t) => (t.id === id ? { ...t, category } : t)));
   };
 
   const importSelected = async () => {
@@ -239,11 +211,8 @@ export default function GmailImport() {
       );
       if (error) throw error;
 
-      Alert.alert(
-        'Success! 🎉',
-        `Imported ${selected.length} transaction${selected.length > 1 ? 's' : ''}`,
-        [{ text: 'OK', onPress: () => router.back() }]
-      );
+      // Navigate back to Add Expense screen without showing any error
+      router.replace('/(tabs)/add');
     } catch (error) {
       console.error('Error importing:', error);
       Alert.alert('Error', 'Failed to import transactions. Please try again.');
@@ -281,11 +250,7 @@ export default function GmailImport() {
             <Text style={styles.emptyText}>
               Connect your Gmail to automatically import UPI payments from GPay, PhonePe, and Paytm made from 9th March 2026 onwards.
             </Text>
-            <TouchableOpacity
-              style={styles.scanButton}
-              onPress={scanEmails}
-              disabled={scanning}
-            >
+            <TouchableOpacity style={styles.scanButton} onPress={scanEmails} disabled={scanning}>
               {scanning ? (
                 <>
                   <ActivityIndicator color={Colors.dark.background} size="small" />
@@ -311,16 +276,12 @@ export default function GmailImport() {
             </View>
 
             {transactions.map((t) => (
-              <View
-                key={t.id}
-                style={[styles.transactionCard, !t.selected && styles.transactionCardDisabled]}
-              >
+              <View key={t.id} style={[styles.transactionCard, !t.selected && styles.transactionCardDisabled]}>
                 <TouchableOpacity style={styles.checkbox} onPress={() => toggleTransaction(t.id)}>
                   <View style={[styles.checkboxInner, t.selected && styles.checkboxSelected]}>
                     {t.selected && <Check size={16} color={Colors.dark.background} />}
                   </View>
                 </TouchableOpacity>
-
                 <View style={styles.transactionInfo}>
                   <View style={styles.transactionRow}>
                     <Text style={styles.merchant}>{t.merchant}</Text>
@@ -357,11 +318,10 @@ export default function GmailImport() {
                 onPress={importSelected}
                 disabled={loading}
               >
-                {loading ? (
-                  <ActivityIndicator color={Colors.dark.background} size="small" />
-                ) : (
-                  <Check size={20} color={Colors.dark.background} />
-                )}
+                {loading
+                  ? <ActivityIndicator color={Colors.dark.background} size="small" />
+                  : <Check size={20} color={Colors.dark.background} />
+                }
                 <Text style={styles.importButtonText}>
                   {loading ? 'Importing...' : `Import ${transactions.filter((t) => t.selected).length}`}
                 </Text>
@@ -383,36 +343,21 @@ const styles = StyleSheet.create({
   },
   backButton: { marginRight: Spacing.md },
   headerContent: { flex: 1 },
-  headerTitle: {
-    fontSize: Typography.sizes.xxl, fontWeight: Typography.weights.bold,
-    color: Colors.dark.text, marginBottom: Spacing.xs,
-  },
+  headerTitle: { fontSize: Typography.sizes.xxl, fontWeight: Typography.weights.bold, color: Colors.dark.text, marginBottom: Spacing.xs },
   headerSubtitle: { fontSize: Typography.sizes.sm, color: Colors.dark.primary },
   scrollView: { flex: 1 },
   emptyState: { padding: Spacing.xl, alignItems: 'center', justifyContent: 'center' },
-  emptyTitle: {
-    fontSize: Typography.sizes.xl, fontWeight: Typography.weights.bold,
-    color: Colors.dark.text, marginTop: Spacing.lg, marginBottom: Spacing.sm,
-  },
-  emptyText: {
-    fontSize: Typography.sizes.md, color: Colors.dark.textSecondary,
-    textAlign: 'center', marginBottom: Spacing.lg, lineHeight: 22,
-  },
+  emptyTitle: { fontSize: Typography.sizes.xl, fontWeight: Typography.weights.bold, color: Colors.dark.text, marginTop: Spacing.lg, marginBottom: Spacing.sm },
+  emptyText: { fontSize: Typography.sizes.md, color: Colors.dark.textSecondary, textAlign: 'center', marginBottom: Spacing.lg, lineHeight: 22 },
   scanButton: {
     flexDirection: 'row', backgroundColor: Colors.dark.primary,
     borderRadius: BorderRadius.md, paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.lg, alignItems: 'center', gap: Spacing.sm,
   },
-  scanButtonText: {
-    fontSize: Typography.sizes.md, fontWeight: Typography.weights.bold,
-    color: Colors.dark.background,
-  },
+  scanButtonText: { fontSize: Typography.sizes.md, fontWeight: Typography.weights.bold, color: Colors.dark.background },
   previewContainer: { padding: Spacing.lg },
   previewHeader: { marginBottom: Spacing.lg },
-  previewTitle: {
-    fontSize: Typography.sizes.xl, fontWeight: Typography.weights.bold,
-    color: Colors.dark.text, marginBottom: Spacing.xs,
-  },
+  previewTitle: { fontSize: Typography.sizes.xl, fontWeight: Typography.weights.bold, color: Colors.dark.text, marginBottom: Spacing.xs },
   previewSubtitle: { fontSize: Typography.sizes.sm, color: Colors.dark.textSecondary },
   transactionCard: {
     flexDirection: 'row', backgroundColor: Colors.dark.surface,
@@ -421,58 +366,23 @@ const styles = StyleSheet.create({
   },
   transactionCardDisabled: { opacity: 0.5 },
   checkbox: { marginRight: Spacing.md, justifyContent: 'flex-start', paddingTop: 2 },
-  checkboxInner: {
-    width: 24, height: 24, borderRadius: BorderRadius.sm,
-    borderWidth: 2, borderColor: Colors.dark.border,
-    alignItems: 'center', justifyContent: 'center',
-  },
+  checkboxInner: { width: 24, height: 24, borderRadius: BorderRadius.sm, borderWidth: 2, borderColor: Colors.dark.border, alignItems: 'center', justifyContent: 'center' },
   checkboxSelected: { backgroundColor: Colors.dark.primary, borderColor: Colors.dark.primary },
   transactionInfo: { flex: 1 },
-  transactionRow: {
-    flexDirection: 'row', justifyContent: 'space-between',
-    alignItems: 'center', marginBottom: Spacing.xs,
-  },
-  merchant: {
-    fontSize: Typography.sizes.md, fontWeight: Typography.weights.semibold,
-    color: Colors.dark.text,
-  },
-  amount: {
-    fontSize: Typography.sizes.lg, fontWeight: Typography.weights.bold,
-    color: Colors.dark.text,
-  },
-  source: {
-    fontSize: Typography.sizes.xs, color: Colors.dark.primary,
-    fontWeight: Typography.weights.semibold,
-  },
+  transactionRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: Spacing.xs },
+  merchant: { fontSize: Typography.sizes.md, fontWeight: Typography.weights.semibold, color: Colors.dark.text },
+  amount: { fontSize: Typography.sizes.lg, fontWeight: Typography.weights.bold, color: Colors.dark.text },
+  source: { fontSize: Typography.sizes.xs, color: Colors.dark.primary, fontWeight: Typography.weights.semibold },
   date: { fontSize: Typography.sizes.xs, color: Colors.dark.textSecondary },
   categorySelector: { marginTop: Spacing.sm },
-  categoryChip: {
-    backgroundColor: Colors.dark.surfaceLight, borderRadius: BorderRadius.full,
-    paddingVertical: 6, paddingHorizontal: Spacing.sm,
-    marginRight: Spacing.xs, borderWidth: 1, borderColor: Colors.dark.border,
-  },
+  categoryChip: { backgroundColor: Colors.dark.surfaceLight, borderRadius: BorderRadius.full, paddingVertical: 6, paddingHorizontal: Spacing.sm, marginRight: Spacing.xs, borderWidth: 1, borderColor: Colors.dark.border },
   categoryChipSelected: { backgroundColor: Colors.dark.primary, borderColor: Colors.dark.primary },
   categoryChipText: { fontSize: Typography.sizes.xs, color: Colors.dark.textSecondary },
   categoryChipTextSelected: { color: Colors.dark.background, fontWeight: Typography.weights.semibold },
   actionButtons: { flexDirection: 'row', gap: Spacing.md, marginTop: Spacing.lg },
-  cancelButton: {
-    flex: 1, flexDirection: 'row', backgroundColor: Colors.dark.surface,
-    borderRadius: BorderRadius.md, paddingVertical: Spacing.md,
-    alignItems: 'center', justifyContent: 'center',
-    gap: Spacing.sm, borderWidth: 1, borderColor: Colors.dark.border,
-  },
-  cancelButtonText: {
-    fontSize: Typography.sizes.md, fontWeight: Typography.weights.bold,
-    color: Colors.dark.text,
-  },
-  importButton: {
-    flex: 1, flexDirection: 'row', backgroundColor: Colors.dark.primary,
-    borderRadius: BorderRadius.md, paddingVertical: Spacing.md,
-    alignItems: 'center', justifyContent: 'center', gap: Spacing.sm,
-  },
+  cancelButton: { flex: 1, flexDirection: 'row', backgroundColor: Colors.dark.surface, borderRadius: BorderRadius.md, paddingVertical: Spacing.md, alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, borderWidth: 1, borderColor: Colors.dark.border },
+  cancelButtonText: { fontSize: Typography.sizes.md, fontWeight: Typography.weights.bold, color: Colors.dark.text },
+  importButton: { flex: 1, flexDirection: 'row', backgroundColor: Colors.dark.primary, borderRadius: BorderRadius.md, paddingVertical: Spacing.md, alignItems: 'center', justifyContent: 'center', gap: Spacing.sm },
   importButtonDisabled: { opacity: 0.5 },
-  importButtonText: {
-    fontSize: Typography.sizes.md, fontWeight: Typography.weights.bold,
-    color: Colors.dark.background,
-  },
+  importButtonText: { fontSize: Typography.sizes.md, fontWeight: Typography.weights.bold, color: Colors.dark.background },
 });

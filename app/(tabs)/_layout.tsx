@@ -12,15 +12,19 @@ export default function TabLayout() {
           backgroundColor: Colors.dark.surface,
           borderTopColor: Colors.dark.border,
           borderTopWidth: 1,
-          height: Platform.OS === 'web' ? 60 : 85,
-          paddingBottom: Platform.OS === 'web' ? 8 : 28,
-          paddingTop: 10,
+          height: Platform.OS === 'web' ? 65 : 90,
+          paddingBottom: Platform.OS === 'web' ? 10 : 30,
+          paddingTop: 8,
         },
         tabBarActiveTintColor: Colors.dark.primary,
         tabBarInactiveTintColor: Colors.dark.textSecondary,
         tabBarLabelStyle: {
-          fontSize: 11,
+          fontSize: 10,
           fontWeight: '600',
+          marginTop: 2,
+        },
+        tabBarIconStyle: {
+          marginBottom: 0,
         },
       }}
     >
@@ -28,45 +32,35 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Dashboard',
-          tabBarIcon: ({ size, color }) => (
-            <Home size={size} color={color} />
-          ),
+          tabBarIcon: ({ size, color }) => <Home size={20} color={color} />,
         }}
       />
       <Tabs.Screen
         name="add"
         options={{
           title: 'Add',
-          tabBarIcon: ({ size, color }) => (
-            <PlusCircle size={size} color={color} />
-          ),
+          tabBarIcon: ({ size, color }) => <PlusCircle size={20} color={color} />,
         }}
       />
       <Tabs.Screen
         name="analytics"
         options={{
           title: 'Analytics',
-          tabBarIcon: ({ size, color }) => (
-            <BarChart3 size={size} color={color} />
-          ),
+          tabBarIcon: ({ size, color }) => <BarChart3 size={20} color={color} />,
         }}
       />
       <Tabs.Screen
         name="history"
         options={{
           title: 'History',
-          tabBarIcon: ({ size, color }) => (
-            <List size={size} color={color} />
-          ),
+          tabBarIcon: ({ size, color }) => <List size={20} color={color} />,
         }}
       />
       <Tabs.Screen
         name="monthly"
         options={{
           title: 'Monthly',
-          tabBarIcon: ({ size, color }) => (
-            <CalendarDays size={size} color={color} />
-          ),
+          tabBarIcon: ({ size, color }) => <CalendarDays size={20} color={color} />,
         }}
       />
     </Tabs>
