@@ -8,7 +8,6 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
-  Alert,
 } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { Colors, Spacing, BorderRadius, Typography } from '@/constants/theme';
@@ -21,9 +20,11 @@ export default function Login() {
   const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const handleGoogleLogin = async () => {
     setLoading(true);
+    setError('');
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -34,7 +35,7 @@ export default function Login() {
       });
       if (error) throw error;
     } catch (error: any) {
-      Alert.alert('Error', error.message);
+      setError(error.message);
     } finally {
       setLoading(false);
     }
@@ -42,19 +43,23 @@ export default function Login() {
 
   const handleSendOTP = async () => {
     if (!email || !email.includes('@')) {
-      Alert.alert('Invalid Email', 'Please enter a valid email address');
+      setError('Please enter a valid email address');
       return;
     }
     setLoading(true);
+    setError('');
     try {
       const { error } = await supabase.auth.signInWithOtp({
         email,
-        options: { shouldCreateUser: true },
+        options: {
+          shouldCreateUser: true,
+          emailRedirectTo: undefined,
+        },
       });
       if (error) throw error;
       setStep('otp');
     } catch (error: any) {
-      Alert.alert('Error', error.message);
+      setError(error.message);
     } finally {
       setLoading(false);
     }
@@ -62,10 +67,11 @@ export default function Login() {
 
   const handleVerifyOTP = async () => {
     if (!otp || otp.length < 6) {
-      Alert.alert('Invalid OTP', 'Please enter the 6-digit code');
+      setError('Please enter the 6-digit code');
       return;
     }
     setLoading(true);
+    setError('');
     try {
       const { error } = await supabase.auth.verifyOtp({
         email,
@@ -73,9 +79,8 @@ export default function Login() {
         type: 'email',
       });
       if (error) throw error;
-      // Auth state change will trigger redirect in _layout.tsx
     } catch (error: any) {
-      Alert.alert('Invalid Code', 'The code is incorrect or expired. Please try again.');
+      setError('The code is incorrect or expired. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -99,6 +104,7 @@ export default function Login() {
         {/* Landing step */}
         {step === 'landing' && (
           <View style={styles.card}>
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
             <TouchableOpacity
               style={styles.googleButton}
               onPress={handleGoogleLogin}
@@ -132,6 +138,7 @@ export default function Login() {
           <View style={styles.card}>
             <Text style={styles.stepTitle}>Enter your email</Text>
             <Text style={styles.stepSubtitle}>We'll send you a one-time code</Text>
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
             <TextInput
               style={styles.input}
               value={email}
@@ -168,6 +175,7 @@ export default function Login() {
             <Text style={styles.stepSubtitle}>
               We sent a 6-digit code to{'\n'}<Text style={styles.emailHighlight}>{email}</Text>
             </Text>
+            {error ? <Text style={styles.errorText}>{error}</Text> : null}
             <TextInput
               style={[styles.input, styles.otpInput]}
               value={otp}
@@ -247,4 +255,5 @@ const styles = StyleSheet.create({
   buttonDisabled: { opacity: 0.5 },
   primaryButtonText: { fontSize: Typography.sizes.md, fontWeight: Typography.weights.bold, color: Colors.dark.background },
   backText: { fontSize: Typography.sizes.sm, color: Colors.dark.textSecondary, textAlign: 'center' },
+  errorText: { fontSize: Typography.sizes.sm, color: Colors.dark.error, marginBottom: Spacing.md, textAlign: 'center' },
 });
