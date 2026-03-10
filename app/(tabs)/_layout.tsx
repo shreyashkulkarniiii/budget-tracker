@@ -1,11 +1,13 @@
 import { Tabs } from 'expo-router';
-import { Home, CirclePlus as PlusCircle, ChartBar as BarChart3, List, CalendarDays } from 'lucide-react-native';
+import { Hop as Home, CirclePlus as PlusCircle, ChartBar as BarChart3, List, CalendarDays } from 'lucide-react-native';
 import { Colors } from '@/constants/theme';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+// iPhone home indicator is 34px. PWA on iPhone doesn't expose safe area
+// via JS, so we hardcode a comfortable bottom padding.
+const BOTTOM_PAD = 30;
+const TAB_HEIGHT = 60 + BOTTOM_PAD;
 
 export default function TabLayout() {
-  const insets = useSafeAreaInsets();
-
   return (
     <Tabs
       screenOptions={{
@@ -14,23 +16,18 @@ export default function TabLayout() {
           backgroundColor: Colors.dark.surface,
           borderTopColor: Colors.dark.border,
           borderTopWidth: 1,
-          height: 60,
-          paddingBottom: insets.bottom > 0 ? insets.bottom : 6,
-          paddingTop: 6,
-        },
-        tabBarItemStyle: {
-          justifyContent: 'center',
-          alignItems: 'center',
+          height: TAB_HEIGHT,
+          paddingBottom: BOTTOM_PAD,
+          paddingTop: 10,
         },
         tabBarActiveTintColor: Colors.dark.primary,
         tabBarInactiveTintColor: Colors.dark.textSecondary,
         tabBarLabelStyle: {
-          fontSize: 10,
+          fontSize: 11,
           fontWeight: '600',
-          marginBottom: 2,
         },
         tabBarIconStyle: {
-          marginTop: 2,
+          marginBottom: 2,
         },
       }}
     >
@@ -38,39 +35,35 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Dashboard',
-          tabBarIcon: ({ color }) => <Home size={22} color={color} />,
+          tabBarIcon: ({ color }) => <Home size={20} color={color} />,
         }}
       />
-
       <Tabs.Screen
         name="add"
         options={{
           title: 'Add',
-          tabBarIcon: ({ color }) => <PlusCircle size={22} color={color} />,
+          tabBarIcon: ({ color }) => <PlusCircle size={20} color={color} />,
         }}
       />
-
       <Tabs.Screen
         name="analytics"
         options={{
           title: 'Analytics',
-          tabBarIcon: ({ color }) => <BarChart3 size={22} color={color} />,
+          tabBarIcon: ({ color }) => <BarChart3 size={20} color={color} />,
         }}
       />
-
       <Tabs.Screen
         name="history"
         options={{
           title: 'History',
-          tabBarIcon: ({ color }) => <List size={22} color={color} />,
+          tabBarIcon: ({ color }) => <List size={20} color={color} />,
         }}
       />
-
       <Tabs.Screen
         name="monthly"
         options={{
           title: 'Monthly',
-          tabBarIcon: ({ color }) => <CalendarDays size={22} color={color} />,
+          tabBarIcon: ({ color }) => <CalendarDays size={20} color={color} />,
         }}
       />
     </Tabs>
