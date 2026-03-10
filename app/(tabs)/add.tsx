@@ -37,6 +37,7 @@ export default function AddExpense() {
         transaction_date: new Date(transactionDate).toISOString(),
         is_imported: false,
         user_id: user.id,
+        user_email: user.email,
       });
       if (error) throw error;
 

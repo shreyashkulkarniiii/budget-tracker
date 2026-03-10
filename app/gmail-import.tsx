@@ -174,6 +174,7 @@ export default function GmailImport() {
           is_imported: true,
           import_source: t.source,
           user_id: user.id,
+          user_email: user.email,
         }))
       );
       if (error) throw error;
