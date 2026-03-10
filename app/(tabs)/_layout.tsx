@@ -1,12 +1,11 @@
 import { Tabs } from 'expo-router';
 import { Hop as Home, CirclePlus as PlusCircle, ChartBar as BarChart3, List, CalendarDays } from 'lucide-react-native';
 import { Colors } from '@/constants/theme';
-import { Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function TabLayout() {
   const insets = useSafeAreaInsets();
-  const bottomInset = insets.bottom || 0;
+  const bottomPad = Math.max(insets.bottom, 8);
 
   return (
     <Tabs
@@ -16,15 +15,19 @@ export default function TabLayout() {
           backgroundColor: Colors.dark.surface,
           borderTopColor: Colors.dark.border,
           borderTopWidth: 1,
-          height: 60 + bottomInset,
-          paddingBottom: bottomInset > 0 ? bottomInset : 8,
-          paddingTop: 6,
+          height: 56 + bottomPad,
+          paddingBottom: bottomPad,
+          paddingTop: 8,
         },
         tabBarActiveTintColor: Colors.dark.primary,
         tabBarInactiveTintColor: Colors.dark.textSecondary,
         tabBarLabelStyle: {
           fontSize: 10,
           fontWeight: '600',
+          marginTop: 0,
+        },
+        tabBarIconStyle: {
+          marginBottom: 0,
         },
       }}
     >

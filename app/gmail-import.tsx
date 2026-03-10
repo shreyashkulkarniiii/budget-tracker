@@ -16,7 +16,6 @@ import { Mail, Check, X, ArrowLeft } from 'lucide-react-native';
 const GOOGLE_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID!;
 const REDIRECT_URI = process.env.EXPO_PUBLIC_REDIRECT_URI || 'https://budget-tracker-rho-two.vercel.app/gmail-callback';
 const SCOPES = 'https://www.googleapis.com/auth/gmail.readonly';
-const START_DATE = new Date('2026-03-09T00:00:00.000Z');
 
 type UPITransaction = {
   id: string;
@@ -91,6 +90,14 @@ function parseUPIEmail(subject: string, body: string, date: string): UPITransact
   };
 }
 
+// Get today's date range (midnight to 23:59:59)
+function getTodayRange() {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+  return { start, end };
+}
+
 export default function GmailImport() {
   const [scanning, setScanning] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -118,7 +125,6 @@ export default function GmailImport() {
             setAccessToken(token);
             popup.close();
             clearInterval(interval);
-            // Auto scan after login
             scanEmailsWithToken(token);
           }
         }
@@ -132,7 +138,9 @@ export default function GmailImport() {
   const scanEmailsWithToken = async (token: string) => {
     setScanning(true);
     try {
-      const after = Math.floor(START_DATE.getTime() / 1000);
+      const { start } = getTodayRange();
+      // Use today's midnight as the after timestamp
+      const after = Math.floor(start.getTime() / 1000);
       const query = encodeURIComponent(`(GPay OR PhonePe OR Paytm OR UPI OR "debited") after:${after}`);
       const listRes = await fetch(
         `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${query}&maxResults=50`,
@@ -141,11 +149,12 @@ export default function GmailImport() {
       const listData = await listRes.json();
 
       if (!listData.messages || listData.messages.length === 0) {
-        Alert.alert('No Transactions Found', 'No UPI transaction emails found from 9th March 2026 onwards.');
+        Alert.alert('No Transactions Found', "No UPI transaction emails found for today.");
         setScanning(false);
         return;
       }
 
+      const { end } = getTodayRange();
       const parsed: UPITransaction[] = [];
       for (const msg of listData.messages) {
         const msgRes = await fetch(
@@ -157,12 +166,17 @@ export default function GmailImport() {
         const subject = headers.find((h: any) => h.name === 'Subject')?.value || '';
         const dateStr = headers.find((h: any) => h.name === 'Date')?.value || '';
         const body = msgData.payload?.body?.data || msgData.payload?.parts?.[0]?.body?.data || '';
-        const transaction = parseUPIEmail(subject, body, dateStr);
-        if (transaction) parsed.push(transaction);
+
+        // Only include emails from today
+        const emailDate = new Date(dateStr);
+        if (emailDate >= start && emailDate <= end) {
+          const transaction = parseUPIEmail(subject, body, dateStr);
+          if (transaction) parsed.push(transaction);
+        }
       }
 
       if (parsed.length === 0) {
-        Alert.alert('No Transactions Found', 'Could not parse any UPI transactions from your emails.');
+        Alert.alert('No Transactions Found', "No UPI transactions found in today's emails.");
       } else {
         setTransactions(parsed);
       }
@@ -211,7 +225,7 @@ export default function GmailImport() {
       );
       if (error) throw error;
 
-      // Navigate back to Add Expense screen without showing any error
+      // Silently navigate back — no error flash
       router.replace('/(tabs)/add');
     } catch (error) {
       console.error('Error importing:', error);
@@ -230,6 +244,8 @@ export default function GmailImport() {
       hour: '2-digit', minute: '2-digit',
     });
 
+  const todayLabel = new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -238,7 +254,7 @@ export default function GmailImport() {
         </TouchableOpacity>
         <View style={styles.headerContent}>
           <Text style={styles.headerTitle}>Gmail UPI Import</Text>
-          <Text style={styles.headerSubtitle}>From 9th March 2026 onwards</Text>
+          <Text style={styles.headerSubtitle}>Today: {todayLabel}</Text>
         </View>
       </View>
 
@@ -246,9 +262,9 @@ export default function GmailImport() {
         {transactions.length === 0 ? (
           <View style={styles.emptyState}>
             <Mail size={64} color={Colors.dark.textSecondary} />
-            <Text style={styles.emptyTitle}>Import UPI Transactions</Text>
+            <Text style={styles.emptyTitle}>Import Today's Transactions</Text>
             <Text style={styles.emptyText}>
-              Connect your Gmail to automatically import UPI payments from GPay, PhonePe, and Paytm made from 9th March 2026 onwards.
+              Connect your Gmail to automatically import today's UPI payments from GPay, PhonePe, and Paytm.
             </Text>
             <TouchableOpacity style={styles.scanButton} onPress={scanEmails} disabled={scanning}>
               {scanning ? (
@@ -260,7 +276,7 @@ export default function GmailImport() {
                 <>
                   <Mail size={20} color={Colors.dark.background} />
                   <Text style={styles.scanButtonText}>
-                    {accessToken ? 'Scan UPI Emails' : 'Connect Gmail & Scan'}
+                    {accessToken ? 'Scan Today\'s Emails' : 'Connect Gmail & Scan'}
                   </Text>
                 </>
               )}
