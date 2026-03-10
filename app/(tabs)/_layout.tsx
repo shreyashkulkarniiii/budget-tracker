@@ -2,8 +2,12 @@ import { Tabs } from 'expo-router';
 import { Hop as Home, CirclePlus as PlusCircle, ChartBar as BarChart3, List, CalendarDays } from 'lucide-react-native';
 import { Colors } from '@/constants/theme';
 import { Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function TabLayout() {
+  const insets = useSafeAreaInsets();
+  const bottomInset = insets.bottom || 0;
+
   return (
     <Tabs
       screenOptions={{
@@ -12,19 +16,15 @@ export default function TabLayout() {
           backgroundColor: Colors.dark.surface,
           borderTopColor: Colors.dark.border,
           borderTopWidth: 1,
-          height: Platform.OS === 'web' ? 65 : 90,
-          paddingBottom: Platform.OS === 'web' ? 10 : 30,
-          paddingTop: 8,
+          height: Platform.OS === 'web' ? 60 : 55 + bottomInset,
+          paddingBottom: Platform.OS === 'web' ? 8 : bottomInset,
+          paddingTop: 6,
         },
         tabBarActiveTintColor: Colors.dark.primary,
         tabBarInactiveTintColor: Colors.dark.textSecondary,
         tabBarLabelStyle: {
           fontSize: 10,
           fontWeight: '600',
-          marginTop: 2,
-        },
-        tabBarIconStyle: {
-          marginBottom: 0,
         },
       }}
     >
@@ -32,35 +32,35 @@ export default function TabLayout() {
         name="index"
         options={{
           title: 'Dashboard',
-          tabBarIcon: ({ size, color }) => <Home size={20} color={color} />,
+          tabBarIcon: ({ color }) => <Home size={20} color={color} />,
         }}
       />
       <Tabs.Screen
         name="add"
         options={{
           title: 'Add',
-          tabBarIcon: ({ size, color }) => <PlusCircle size={20} color={color} />,
+          tabBarIcon: ({ color }) => <PlusCircle size={20} color={color} />,
         }}
       />
       <Tabs.Screen
         name="analytics"
         options={{
           title: 'Analytics',
-          tabBarIcon: ({ size, color }) => <BarChart3 size={20} color={color} />,
+          tabBarIcon: ({ color }) => <BarChart3 size={20} color={color} />,
         }}
       />
       <Tabs.Screen
         name="history"
         options={{
           title: 'History',
-          tabBarIcon: ({ size, color }) => <List size={20} color={color} />,
+          tabBarIcon: ({ color }) => <List size={20} color={color} />,
         }}
       />
       <Tabs.Screen
         name="monthly"
         options={{
           title: 'Monthly',
-          tabBarIcon: ({ size, color }) => <CalendarDays size={20} color={color} />,
+          tabBarIcon: ({ color }) => <CalendarDays size={20} color={color} />,
         }}
       />
     </Tabs>
