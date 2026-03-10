@@ -40,7 +40,7 @@ function decodeBase64(str: string): string {
 
 function autoCategory(merchant: string): Category {
   const m = merchant.toLowerCase();
-  if (m.includes('swiggy') || m.includes('zomato') || m.includes('restaurant') || m.includes('food') || m.includes('cafe') || m.includes('pizza') || m.includes('burger')) return 'Food';
+  if (m.includes('swiggy') || m.includes('zomato') || m.includes('restaurant') || m.includes('food') || m.includes('cafe') || m.includes('pizza') || m.includes('burger') || m.includes('Hunger Box')) return 'Food';
   if (m.includes('uber') || m.includes('ola') || m.includes('metro') || m.includes('rapido') || m.includes('bus') || m.includes('railway') || m.includes('irctc')) return 'Transport';
   if (m.includes('amazon') || m.includes('flipkart') || m.includes('myntra') || m.includes('ajio') || m.includes('nykaa') || m.includes('shop')) return 'Shopping';
   if (m.includes('netflix') || m.includes('spotify') || m.includes('hotstar') || m.includes('prime') || m.includes('movie') || m.includes('bookmyshow')) return 'Entertainment';
