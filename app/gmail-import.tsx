@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   View,
   Text,
@@ -14,7 +14,7 @@ import { Colors, Spacing, BorderRadius, Typography } from '@/constants/theme';
 import { Mail, Check, X, ArrowLeft } from 'lucide-react-native';
 
 const GOOGLE_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID!;
-const REDIRECT_URI = process.env.EXPO_PUBLIC_REDIRECT_URI || 'https://budget-tracker-rho-two.vercel.app/gmail-import';
+const REDIRECT_URI = process.env.EXPO_PUBLIC_REDIRECT_URI || 'https://budget-tracker-rho-two.vercel.app/gmail-callback';
 const SCOPES = 'https://www.googleapis.com/auth/gmail.readonly';
 
 type UPITransaction = {
@@ -124,26 +124,27 @@ export default function GmailImport() {
       `&scope=${encodeURIComponent(SCOPES)}` +
       `&prompt=consent`;
 
-    // Full redirect — no popup, works perfectly on iPhone PWA
-    window.location.href = authUrl;
-  };
+    const popup = window.open(authUrl, 'gmail-auth', 'width=500,height=600');
 
-  // On mount, check if we just came back from Google OAuth
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const hash = window.location.hash;
-      if (hash.includes('access_token')) {
-        const params = new URLSearchParams(hash.replace('#', ''));
-        const token = params.get('access_token');
-        if (token) {
-          // Clear the hash from URL
-          window.history.replaceState(null, '', window.location.pathname);
-          setAccessToken(token);
-          scanEmailsWithToken(token);
+    const interval = setInterval(() => {
+      try {
+        if (popup && popup.location.href.includes('access_token')) {
+          const hash = popup.location.hash;
+          const params = new URLSearchParams(hash.replace('#', ''));
+          const token = params.get('access_token');
+          if (token) {
+            setAccessToken(token);
+            popup.close();
+            clearInterval(interval);
+            scanEmailsWithToken(token);
+          }
         }
+        if (popup && popup.closed) clearInterval(interval);
+      } catch (e) {
+        // Cross-origin error while popup is on Google - ignore
       }
-    }
-  }, []);
+    }, 500);
+  };
 
   const scanEmailsWithToken = async (token: string) => {
     setScanning(true);
