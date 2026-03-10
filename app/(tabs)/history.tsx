@@ -200,8 +200,9 @@ export default function History() {
 
       {/* Filter Modal */}
       <Modal visible={showFilters} transparent animationType="slide" onRequestClose={() => setShowFilters(false)}>
-        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowFilters(false)}>
-          <View style={styles.modalSheet} onStartShouldSetResponder={() => true}>
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity style={styles.modalDismiss} activeOpacity={1} onPress={() => setShowFilters(false)} />
+          <View style={styles.modalSheet}>
             <Text style={styles.modalTitle}>Filter by Date</Text>
 
             {filterLabels.map((f) => (
@@ -223,12 +224,17 @@ export default function History() {
                   <input
                     type="date"
                     value={pendingFrom}
-                    onChange={(e) => setPendingFrom(e.target.value)}
+                    placeholder="Select date"
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      setPendingFrom(e.target.value);
+                    }}
+                    onClick={(e) => e.stopPropagation()}
                     style={{
                       width: '100%',
                       padding: '12px',
                       backgroundColor: '#0A0A0A',
-                      color: '#FFFFFF',
+                      color: pendingFrom ? '#FFFFFF' : '#A0A0A0',
                       border: '1px solid #333333',
                       borderRadius: '12px',
                       fontSize: '16px',
@@ -242,12 +248,17 @@ export default function History() {
                   <input
                     type="date"
                     value={pendingTo}
-                    onChange={(e) => setPendingTo(e.target.value)}
+                    placeholder="Select date"
+                    onChange={(e) => {
+                      e.stopPropagation();
+                      setPendingTo(e.target.value);
+                    }}
+                    onClick={(e) => e.stopPropagation()}
                     style={{
                       width: '100%',
                       padding: '12px',
                       backgroundColor: '#0A0A0A',
-                      color: '#FFFFFF',
+                      color: pendingTo ? '#FFFFFF' : '#A0A0A0',
                       border: '1px solid #333333',
                       borderRadius: '12px',
                       fontSize: '16px',
@@ -266,7 +277,7 @@ export default function History() {
               </View>
             )}
           </View>
-        </TouchableOpacity>
+        </View>
       </Modal>
 
       <FlatList
@@ -302,6 +313,7 @@ const styles = StyleSheet.create({
   activeBadge: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, backgroundColor: Colors.dark.surfaceLight, borderRadius: BorderRadius.full, paddingVertical: 6, paddingHorizontal: Spacing.md, borderWidth: 1, borderColor: Colors.dark.primary, alignSelf: 'flex-start' },
   activeBadgeText: { fontSize: Typography.sizes.xs, color: Colors.dark.primary, fontWeight: Typography.weights.semibold },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  modalDismiss: { flex: 1 },
   modalSheet: { backgroundColor: Colors.dark.surface, borderTopLeftRadius: BorderRadius.xl, borderTopRightRadius: BorderRadius.xl, padding: Spacing.lg, paddingBottom: 48 },
   modalTitle: { fontSize: Typography.sizes.lg, fontWeight: Typography.weights.bold, color: Colors.dark.text, marginBottom: Spacing.lg },
   filterOption: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: Spacing.md, borderBottomWidth: 1, borderBottomColor: Colors.dark.border },
