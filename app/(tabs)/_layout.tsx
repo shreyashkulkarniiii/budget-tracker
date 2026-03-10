@@ -5,7 +5,7 @@ import { Colors } from '@/constants/theme';
 // iPhone home indicator is 34px. PWA on iPhone doesn't expose safe area
 // via JS, so we hardcode a comfortable bottom padding.
 const BOTTOM_PAD = 50;
-const TAB_HEIGHT = 60 + BOTTOM_PAD;
+const TAB_HEIGHT = 150;
 
 export default function TabLayout() {
   return (
