@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -14,7 +14,7 @@ import { Colors, Spacing, BorderRadius, Typography } from '@/constants/theme';
 import { Mail, Check, X, ArrowLeft } from 'lucide-react-native';
 
 const GOOGLE_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID!;
-const REDIRECT_URI = process.env.EXPO_PUBLIC_REDIRECT_URI || 'https://budget-tracker-rho-two.vercel.app/gmail-callback';
+const REDIRECT_URI = process.env.EXPO_PUBLIC_REDIRECT_URI || 'https://budget-tracker-rho-two.vercel.app/gmail-import';
 const SCOPES = 'https://www.googleapis.com/auth/gmail.readonly';
 
 type UPITransaction = {
@@ -25,6 +25,7 @@ type UPITransaction = {
   source: string;
   category: Category;
   selected: boolean;
+  alreadyAdded: boolean;
 };
 
 function decodeBase64(str: string): string {
@@ -40,7 +41,7 @@ function decodeBase64(str: string): string {
 
 function autoCategory(merchant: string): Category {
   const m = merchant.toLowerCase();
-  if (m.includes('swiggy') || m.includes('zomato') || m.includes('restaurant') || m.includes('food') || m.includes('cafe') || m.includes('pizza') || m.includes('burger') || m.includes('Hunger Box')) return 'Food';
+  if (m.includes('swiggy') || m.includes('zomato') || m.includes('restaurant') || m.includes('food') || m.includes('cafe') || m.includes('pizza') || m.includes('burger')) return 'Food';
   if (m.includes('uber') || m.includes('ola') || m.includes('metro') || m.includes('rapido') || m.includes('bus') || m.includes('railway') || m.includes('irctc')) return 'Transport';
   if (m.includes('amazon') || m.includes('flipkart') || m.includes('myntra') || m.includes('ajio') || m.includes('nykaa') || m.includes('shop')) return 'Shopping';
   if (m.includes('netflix') || m.includes('spotify') || m.includes('hotstar') || m.includes('prime') || m.includes('movie') || m.includes('bookmyshow')) return 'Entertainment';
@@ -55,6 +56,15 @@ function parseUPIEmail(subject: string, body: string, date: string): UPITransact
   let amount = 0;
   let merchant = '';
   let source = '';
+
+  // Skip credit/received transactions — we only want money spent
+  const creditKeywords = [
+    'received', 'credited', 'credit', 'added to',
+    'money received', 'paid to you', 'you have received',
+    'deposited', 'refund', 'cashback', 'reward',
+  ];
+  const lowerText = fullText.toLowerCase();
+  if (creditKeywords.some((kw) => lowerText.includes(kw))) return null;
 
   const amountMatch = fullText.match(/(?:Rs\.?|INR|₹)\s*([\d,]+(?:\.\d{2})?)/i);
   if (amountMatch) amount = parseFloat(amountMatch[1].replace(/,/g, ''));
@@ -87,6 +97,7 @@ function parseUPIEmail(subject: string, body: string, date: string): UPITransact
     source,
     category: autoCategory(merchant),
     selected: true,
+    alreadyAdded: false,
   };
 }
 
@@ -113,33 +124,31 @@ export default function GmailImport() {
       `&scope=${encodeURIComponent(SCOPES)}` +
       `&prompt=consent`;
 
-    const popup = window.open(authUrl, 'gmail-auth', 'width=500,height=600');
-
-    const interval = setInterval(() => {
-      try {
-        if (popup && popup.location.href.includes('access_token')) {
-          const hash = popup.location.hash;
-          const params = new URLSearchParams(hash.replace('#', ''));
-          const token = params.get('access_token');
-          if (token) {
-            setAccessToken(token);
-            popup.close();
-            clearInterval(interval);
-            scanEmailsWithToken(token);
-          }
-        }
-        if (popup && popup.closed) clearInterval(interval);
-      } catch (e) {
-        // Cross-origin error while popup is on Google - ignore
-      }
-    }, 500);
+    // Full redirect — no popup, works perfectly on iPhone PWA
+    window.location.href = authUrl;
   };
+
+  // On mount, check if we just came back from Google OAuth
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const hash = window.location.hash;
+      if (hash.includes('access_token')) {
+        const params = new URLSearchParams(hash.replace('#', ''));
+        const token = params.get('access_token');
+        if (token) {
+          // Clear the hash from URL
+          window.history.replaceState(null, '', window.location.pathname);
+          setAccessToken(token);
+          scanEmailsWithToken(token);
+        }
+      }
+    }
+  }, []);
 
   const scanEmailsWithToken = async (token: string) => {
     setScanning(true);
     try {
       const { start } = getTodayRange();
-      // Use today's midnight as the after timestamp
       const after = Math.floor(start.getTime() / 1000);
       const query = encodeURIComponent(`(GPay OR PhonePe OR Paytm OR UPI OR "debited") after:${after}`);
       const listRes = await fetch(
@@ -154,7 +163,15 @@ export default function GmailImport() {
         return;
       }
 
+      // Fetch today's already-imported expenses from Supabase
       const { end } = getTodayRange();
+      const { data: existingExpenses } = await supabase
+        .from('expenses')
+        .select('amount, merchant, transaction_date')
+        .eq('is_imported', true)
+        .gte('transaction_date', start.toISOString())
+        .lte('transaction_date', end.toISOString());
+
       const parsed: UPITransaction[] = [];
       for (const msg of listData.messages) {
         const msgRes = await fetch(
@@ -167,17 +184,25 @@ export default function GmailImport() {
         const dateStr = headers.find((h: any) => h.name === 'Date')?.value || '';
         const body = msgData.payload?.body?.data || msgData.payload?.parts?.[0]?.body?.data || '';
 
-        // Only include emails from today
         const emailDate = new Date(dateStr);
         if (emailDate >= start && emailDate <= end) {
           const transaction = parseUPIEmail(subject, body, dateStr);
-          if (transaction) parsed.push(transaction);
+          if (transaction) {
+            // Check if already imported — match by transaction time (within 60 second window)
+            const alreadyAdded = existingExpenses?.some((e) => {
+              const diff = Math.abs(new Date(e.transaction_date).getTime() - new Date(transaction.date).getTime());
+              return diff <= 60000; // 60 second window
+            }) ?? false;
+            parsed.push({ ...transaction, alreadyAdded, selected: !alreadyAdded });
+          }
         }
       }
 
       if (parsed.length === 0) {
         Alert.alert('No Transactions Found', "No UPI transactions found in today's emails.");
       } else {
+        // Sort: new transactions first, already added at bottom
+        parsed.sort((a, b) => Number(a.alreadyAdded) - Number(b.alreadyAdded));
         setTransactions(parsed);
       }
     } catch (error) {
@@ -291,38 +316,71 @@ export default function GmailImport() {
               <Text style={styles.previewSubtitle}>Review and select to import</Text>
             </View>
 
-            {transactions.map((t) => (
-              <View key={t.id} style={[styles.transactionCard, !t.selected && styles.transactionCardDisabled]}>
-                <TouchableOpacity style={styles.checkbox} onPress={() => toggleTransaction(t.id)}>
-                  <View style={[styles.checkboxInner, t.selected && styles.checkboxSelected]}>
-                    {t.selected && <Check size={16} color={Colors.dark.background} />}
+            {/* New transactions section */}
+            {transactions.filter(t => !t.alreadyAdded).length > 0 && (
+              <Text style={styles.sectionLabel}>
+                NEW ({transactions.filter(t => !t.alreadyAdded).length})
+              </Text>
+            )}
+
+            {transactions.map((t, index) => {
+              // Show "Already Added" divider label before first already-added item
+              const prevNew = index > 0 && !transactions[index - 1].alreadyAdded;
+              const showDivider = t.alreadyAdded && (index === 0 || prevNew);
+              return (
+                <>
+                  {showDivider && (
+                    <Text key={`divider-${t.id}`} style={styles.sectionLabel}>
+                      ALREADY ADDED ({transactions.filter(t => t.alreadyAdded).length})
+                    </Text>
+                  )}
+                  <View key={t.id} style={[styles.transactionCard, (t.alreadyAdded || !t.selected) && styles.transactionCardDisabled]}>
+                    <TouchableOpacity
+                      style={styles.checkbox}
+                      onPress={() => !t.alreadyAdded && toggleTransaction(t.id)}
+                      disabled={t.alreadyAdded}
+                    >
+                      <View style={[styles.checkboxInner, t.selected && !t.alreadyAdded && styles.checkboxSelected]}>
+                        {t.selected && !t.alreadyAdded && <Check size={16} color={Colors.dark.background} />}
+                        {t.alreadyAdded && <Check size={16} color={Colors.dark.textSecondary} />}
+                      </View>
+                    </TouchableOpacity>
+                    <View style={styles.transactionInfo}>
+                      <View style={styles.transactionRow}>
+                        <Text style={styles.merchant}>{t.merchant}</Text>
+                        <View style={styles.amountRow}>
+                          {t.alreadyAdded && (
+                            <View style={styles.addedBadge}>
+                              <Text style={styles.addedBadgeText}>Added</Text>
+                            </View>
+                          )}
+                          <Text style={styles.amount}>{formatCurrency(t.amount)}</Text>
+                        </View>
+                      </View>
+                      <View style={styles.transactionRow}>
+                        <Text style={styles.source}>{t.source}</Text>
+                        <Text style={styles.date}>{formatDate(t.date)}</Text>
+                      </View>
+                      {!t.alreadyAdded && (
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categorySelector}>
+                          {(['Food', 'Transport', 'Shopping', 'Entertainment', 'Bills', 'Health', 'Others'] as Category[]).map((cat) => (
+                            <TouchableOpacity
+                              key={cat}
+                              style={[styles.categoryChip, t.category === cat && styles.categoryChipSelected]}
+                              onPress={() => updateCategory(t.id, cat)}
+                            >
+                              <Text style={[styles.categoryChipText, t.category === cat && styles.categoryChipTextSelected]}>
+                                {cat}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </ScrollView>
+                      )}
+                    </View>
                   </View>
-                </TouchableOpacity>
-                <View style={styles.transactionInfo}>
-                  <View style={styles.transactionRow}>
-                    <Text style={styles.merchant}>{t.merchant}</Text>
-                    <Text style={styles.amount}>{formatCurrency(t.amount)}</Text>
-                  </View>
-                  <View style={styles.transactionRow}>
-                    <Text style={styles.source}>{t.source}</Text>
-                    <Text style={styles.date}>{formatDate(t.date)}</Text>
-                  </View>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categorySelector}>
-                    {(['Food', 'Transport', 'Shopping', 'Entertainment', 'Bills', 'Health', 'Others'] as Category[]).map((cat) => (
-                      <TouchableOpacity
-                        key={cat}
-                        style={[styles.categoryChip, t.category === cat && styles.categoryChipSelected]}
-                        onPress={() => updateCategory(t.id, cat)}
-                      >
-                        <Text style={[styles.categoryChipText, t.category === cat && styles.categoryChipTextSelected]}>
-                          {cat}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                </View>
-              </View>
-            ))}
+                </>
+              );
+            })}
 
             <View style={styles.actionButtons}>
               <TouchableOpacity style={styles.cancelButton} onPress={() => setTransactions([])}>
@@ -395,6 +453,10 @@ const styles = StyleSheet.create({
   categoryChipSelected: { backgroundColor: Colors.dark.primary, borderColor: Colors.dark.primary },
   categoryChipText: { fontSize: Typography.sizes.xs, color: Colors.dark.textSecondary },
   categoryChipTextSelected: { color: Colors.dark.background, fontWeight: Typography.weights.semibold },
+  sectionLabel: { fontSize: Typography.sizes.xs, fontWeight: Typography.weights.bold, color: Colors.dark.textSecondary, letterSpacing: 1, marginBottom: Spacing.sm, marginTop: Spacing.xs },
+  amountRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.xs },
+  addedBadge: { backgroundColor: Colors.dark.surfaceLight, borderRadius: BorderRadius.full, paddingVertical: 2, paddingHorizontal: 8, borderWidth: 1, borderColor: Colors.dark.border },
+  addedBadgeText: { fontSize: 10, color: Colors.dark.textSecondary, fontWeight: Typography.weights.semibold },
   actionButtons: { flexDirection: 'row', gap: Spacing.md, marginTop: Spacing.lg },
   cancelButton: { flex: 1, flexDirection: 'row', backgroundColor: Colors.dark.surface, borderRadius: BorderRadius.md, paddingVertical: Spacing.md, alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, borderWidth: 1, borderColor: Colors.dark.border },
   cancelButtonText: { fontSize: Typography.sizes.md, fontWeight: Typography.weights.bold, color: Colors.dark.text },
