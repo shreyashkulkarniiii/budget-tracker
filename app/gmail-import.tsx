@@ -1,12 +1,12 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity,
-  ScrollView, ActivityIndicator,
+  ScrollView, ActivityIndicator, Modal,
 } from 'react-native';
 import { router } from 'expo-router';
 import { supabase, type Category } from '@/lib/supabase';
 import { Colors, Spacing, BorderRadius, Typography } from '@/constants/theme';
-import { Mail, Check, X, ArrowLeft } from 'lucide-react-native';
+import { Mail, Check, X, ArrowLeft, User, ChevronRight } from 'lucide-react-native';
 
 const GOOGLE_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID!;
 const REDIRECT_URI = process.env.EXPO_PUBLIC_REDIRECT_URI || 'https://budget-tracker-rho-two.vercel.app/gmail-callback';
@@ -82,8 +82,70 @@ export default function GmailImport() {
   const [transactions, setTransactions] = useState<UPITransaction[]>([]);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [error, setError] = useState('');
+  const [noTransactions, setNoTransactions] = useState(false);
+  const [showAccountModal, setShowAccountModal] = useState(true);
+  const [loggedInEmail, setLoggedInEmail] = useState('');
+  const [sessionToken, setSessionToken] = useState<string | null>(null);
 
-  const handleGoogleLogin = () => {
+  useEffect(() => {
+    const init = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user?.email) setLoggedInEmail(session.user.email);
+      if (session?.provider_token) setSessionToken(session.provider_token);
+    };
+    init();
+  }, []);
+
+  // Try existing token, if expired refresh via Vercel API, if that fails fallback to popup
+  const getValidToken = async (): Promise<string | null> => {
+    if (sessionToken) {
+      const testRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/profile', {
+        headers: { Authorization: `Bearer ${sessionToken}` },
+      });
+      if (testRes.ok) return sessionToken;
+    }
+    // Token expired — try refresh via Vercel API
+    const { data: { session } } = await supabase.auth.getSession();
+    const refreshToken = session?.provider_refresh_token;
+    if (!refreshToken) return null;
+    try {
+      const res = await fetch('/api/refresh-google-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+      const data = await res.json();
+      if (data.access_token) {
+        setSessionToken(data.access_token);
+        return data.access_token;
+      }
+    } catch (e) {
+      console.error('Token refresh failed:', e);
+    }
+    return null;
+  };
+
+  const handleUseExistingAccount = async () => {
+    setShowAccountModal(false);
+    setScanning(true);
+    setError('');
+    setNoTransactions(false);
+    const token = await getValidToken();
+    if (token) {
+      setAccessToken(token);
+      scanEmailsWithToken(token);
+    } else {
+      setScanning(false);
+      handleGoogleLoginPopup();
+    }
+  };
+
+  const handleUseDifferentAccount = () => {
+    setShowAccountModal(false);
+    handleGoogleLoginPopup();
+  };
+
+  const handleGoogleLoginPopup = () => {
     const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${GOOGLE_CLIENT_ID}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=token&scope=${encodeURIComponent(SCOPES)}&prompt=consent`;
     const popup = window.open(authUrl, 'gmail-auth', 'width=500,height=600');
     const interval = setInterval(() => {
@@ -101,6 +163,7 @@ export default function GmailImport() {
   const scanEmailsWithToken = async (token: string) => {
     setScanning(true);
     setError('');
+    setNoTransactions(false);
     try {
       const { start, end } = getTodayRange();
       const after = Math.floor(start.getTime() / 1000);
@@ -108,8 +171,9 @@ export default function GmailImport() {
       const listRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${query}&maxResults=50`, { headers: { Authorization: `Bearer ${token}` } });
       const listData = await listRes.json();
 
+      // No emails at all for today
       if (!listData.messages || listData.messages.length === 0) {
-        setError('No UPI transaction emails found for today.');
+        setNoTransactions(true);
         setScanning(false);
         return;
       }
@@ -134,8 +198,9 @@ export default function GmailImport() {
         }
       }
 
+      // Emails found but none were valid UPI debit transactions
       if (parsed.length === 0) {
-        setError('No UPI transactions found in today\'s emails.');
+        setNoTransactions(true);
       } else {
         parsed.sort((a, b) => Number(a.alreadyAdded) - Number(b.alreadyAdded));
         setTransactions(parsed);
@@ -146,11 +211,6 @@ export default function GmailImport() {
     } finally {
       setScanning(false);
     }
-  };
-
-  const scanEmails = () => {
-    if (!accessToken) { handleGoogleLogin(); return; }
-    scanEmailsWithToken(accessToken);
   };
 
   const toggleTransaction = (id: string) => setTransactions((prev) => prev.map((t) => t.id === id ? { ...t, selected: !t.selected } : t));
@@ -164,17 +224,11 @@ export default function GmailImport() {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setError('Not logged in'); return; }
-
       const { error } = await supabase.from('expenses').insert(
         selected.map((t) => ({
-          amount: t.amount,
-          category: t.category,
-          merchant: t.merchant,
-          transaction_date: t.date,
-          is_imported: true,
-          import_source: t.source,
-          user_id: user.id,
-          user_email: user.email,
+          amount: t.amount, category: t.category, merchant: t.merchant,
+          transaction_date: t.date, is_imported: true, import_source: t.source,
+          user_id: user.id, user_email: user.email,
         }))
       );
       if (error) throw error;
@@ -203,18 +257,79 @@ export default function GmailImport() {
         </View>
       </View>
 
-      <ScrollView style={styles.scrollView}>
-        {transactions.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Mail size={64} color={Colors.dark.textSecondary} />
-            <Text style={styles.emptyTitle}>Import Today's Transactions</Text>
-            <Text style={styles.emptyText}>Connect your Gmail to automatically import today's UPI payments from GPay, PhonePe, and Paytm.</Text>
-            {error ? <Text style={styles.errorText}>{error}</Text> : null}
-            <TouchableOpacity style={styles.scanButton} onPress={scanEmails} disabled={scanning}>
-              {scanning ? <><ActivityIndicator color={Colors.dark.background} size="small" /><Text style={styles.scanButtonText}>Scanning Gmail...</Text></> : <><Mail size={20} color={Colors.dark.background} /><Text style={styles.scanButtonText}>{accessToken ? "Scan Today's Emails" : 'Connect Gmail & Scan'}</Text></>}
+      {/* Account Chooser Modal */}
+      <Modal visible={showAccountModal} transparent animationType="fade" onRequestClose={() => router.back()}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalBox}>
+            <Text style={styles.modalTitle}>Choose Gmail Account</Text>
+            <Text style={styles.modalSubtitle}>Which account do you want to scan?</Text>
+            <TouchableOpacity style={styles.accountOption} onPress={handleUseExistingAccount}>
+              <View style={styles.accountOptionLeft}>
+                <View style={styles.accountAvatar}>
+                  <User size={20} color={Colors.dark.primary} />
+                </View>
+                <View>
+                  <Text style={styles.accountOptionTitle}>Use logged-in account</Text>
+                  <Text style={styles.accountOptionEmail}>{loggedInEmail}</Text>
+                </View>
+              </View>
+              <ChevronRight size={20} color={Colors.dark.textSecondary} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.accountOption} onPress={handleUseDifferentAccount}>
+              <View style={styles.accountOptionLeft}>
+                <View style={[styles.accountAvatar, { backgroundColor: '#1A2A3A' }]}>
+                  <Mail size={20} color="#4ECDC4" />
+                </View>
+                <View>
+                  <Text style={styles.accountOptionTitle}>Use a different account</Text>
+                  <Text style={styles.accountOptionEmail}>Sign in with another Gmail</Text>
+                </View>
+              </View>
+              <ChevronRight size={20} color={Colors.dark.textSecondary} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => router.back()}>
+              <Text style={styles.cancelBtnText}>Cancel</Text>
             </TouchableOpacity>
           </View>
-        ) : (
+        </View>
+      </Modal>
+
+      <ScrollView style={styles.scrollView}>
+        {/* Scanning state */}
+        {scanning && (
+          <View style={styles.emptyState}>
+            <ActivityIndicator color={Colors.dark.primary} size="large" />
+            <Text style={styles.emptyTitle}>Scanning Gmail...</Text>
+            <Text style={styles.emptyText}>Looking for today's UPI transactions in your inbox.</Text>
+          </View>
+        )}
+
+        {/* No transactions found */}
+        {!scanning && noTransactions && (
+          <View style={styles.emptyState}>
+            <Mail size={64} color={Colors.dark.textSecondary} />
+            <Text style={styles.emptyTitle}>No Transactions Today</Text>
+            <Text style={styles.emptyText}>No UPI payment emails found for {todayLabel}.</Text>
+            <TouchableOpacity style={styles.backToAddBtn} onPress={() => router.back()}>
+              <Text style={styles.backToAddBtnText}>Go Back</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Error state */}
+        {!scanning && error !== '' && transactions.length === 0 && !noTransactions && (
+          <View style={styles.emptyState}>
+            <Mail size={64} color={Colors.dark.textSecondary} />
+            <Text style={styles.emptyTitle}>Something went wrong</Text>
+            <Text style={styles.errorText}>{error}</Text>
+            <TouchableOpacity style={styles.backToAddBtn} onPress={() => router.back()}>
+              <Text style={styles.backToAddBtnText}>Go Back</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Transactions list */}
+        {!scanning && transactions.length > 0 && (
           <View style={styles.previewContainer}>
             <View style={styles.previewHeader}>
               <Text style={styles.previewTitle}>Found {transactions.length} transaction{transactions.length > 1 ? 's' : ''}</Text>
@@ -288,12 +403,23 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: Typography.sizes.xxl, fontWeight: Typography.weights.bold, color: Colors.dark.text, marginBottom: Spacing.xs },
   headerSubtitle: { fontSize: Typography.sizes.sm, color: Colors.dark.primary },
   scrollView: { flex: 1 },
-  emptyState: { padding: Spacing.xl, alignItems: 'center', justifyContent: 'center' },
+  emptyState: { padding: Spacing.xl, alignItems: 'center', justifyContent: 'center', marginTop: Spacing.xl },
   emptyTitle: { fontSize: Typography.sizes.xl, fontWeight: Typography.weights.bold, color: Colors.dark.text, marginTop: Spacing.lg, marginBottom: Spacing.sm },
-  emptyText: { fontSize: Typography.sizes.md, color: Colors.dark.textSecondary, textAlign: 'center', marginBottom: Spacing.lg, lineHeight: 22 },
-  errorText: { fontSize: Typography.sizes.sm, color: Colors.dark.error, marginBottom: Spacing.md, textAlign: 'center' },
-  scanButton: { flexDirection: 'row', backgroundColor: Colors.dark.primary, borderRadius: BorderRadius.md, paddingVertical: Spacing.md, paddingHorizontal: Spacing.lg, alignItems: 'center', gap: Spacing.sm },
-  scanButtonText: { fontSize: Typography.sizes.md, fontWeight: Typography.weights.bold, color: Colors.dark.background },
+  emptyText: { fontSize: Typography.sizes.md, color: Colors.dark.textSecondary, textAlign: 'center', lineHeight: 22, marginBottom: Spacing.lg },
+  errorText: { fontSize: Typography.sizes.sm, color: Colors.dark.error, marginBottom: Spacing.md, textAlign: 'center', marginTop: Spacing.sm },
+  backToAddBtn: { backgroundColor: Colors.dark.primary, borderRadius: BorderRadius.md, paddingVertical: Spacing.md, paddingHorizontal: Spacing.xl, marginTop: Spacing.sm },
+  backToAddBtnText: { fontSize: Typography.sizes.md, fontWeight: Typography.weights.bold, color: Colors.dark.background },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.75)', alignItems: 'center', justifyContent: 'center', padding: Spacing.lg },
+  modalBox: { backgroundColor: Colors.dark.surface, borderRadius: BorderRadius.xl, padding: Spacing.xl, width: '100%', borderWidth: 1, borderColor: Colors.dark.border },
+  modalTitle: { fontSize: Typography.sizes.xl, fontWeight: Typography.weights.bold, color: Colors.dark.text, marginBottom: Spacing.xs },
+  modalSubtitle: { fontSize: Typography.sizes.sm, color: Colors.dark.textSecondary, marginBottom: Spacing.xl },
+  accountOption: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: Colors.dark.surfaceLight, borderRadius: BorderRadius.lg, padding: Spacing.md, marginBottom: Spacing.md, borderWidth: 1, borderColor: Colors.dark.border },
+  accountOptionLeft: { flexDirection: 'row', alignItems: 'center', gap: Spacing.md, flex: 1 },
+  accountAvatar: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#1A3A3A', alignItems: 'center', justifyContent: 'center' },
+  accountOptionTitle: { fontSize: Typography.sizes.md, fontWeight: Typography.weights.semibold, color: Colors.dark.text, marginBottom: 2 },
+  accountOptionEmail: { fontSize: Typography.sizes.xs, color: Colors.dark.textSecondary },
+  cancelBtn: { marginTop: Spacing.sm, padding: Spacing.md, alignItems: 'center' },
+  cancelBtnText: { fontSize: Typography.sizes.md, color: Colors.dark.textSecondary },
   previewContainer: { padding: Spacing.lg },
   previewHeader: { marginBottom: Spacing.lg },
   previewTitle: { fontSize: Typography.sizes.xl, fontWeight: Typography.weights.bold, color: Colors.dark.text, marginBottom: Spacing.xs },
