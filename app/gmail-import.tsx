@@ -6,7 +6,7 @@ import {
 import { router } from 'expo-router';
 import { supabase, type Category } from '@/lib/supabase';
 import { Colors, Spacing, BorderRadius, Typography } from '@/constants/theme';
-import { Mail, Check, X, ArrowLeft, User, ChevronRight } from 'lucide-react-native';
+import { Mail, Check, ArrowLeft, User, ChevronRight } from 'lucide-react-native';
 
 const GOOGLE_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID!;
 const REDIRECT_URI = process.env.EXPO_PUBLIC_REDIRECT_URI || 'https://budget-tracker-rho-two.vercel.app/gmail-callback';
@@ -379,9 +379,9 @@ export default function GmailImport() {
             })}
 
             <View style={styles.actionButtons}>
-              <TouchableOpacity style={styles.cancelButton} onPress={() => setTransactions([])}>
-                <X size={20} color={Colors.dark.text} />
-                <Text style={styles.cancelButtonText}>Cancel</Text>
+              <TouchableOpacity style={styles.cancelButton} onPress={() => router.replace('/(tabs)/add')}>
+                <ArrowLeft size={20} color={Colors.dark.text} />
+                <Text style={styles.cancelButtonText}>Back to Add Expense</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.importButton, loading && styles.importButtonDisabled]} onPress={importSelected} disabled={loading}>
                 {loading ? <ActivityIndicator color={Colors.dark.background} size="small" /> : <Check size={20} color={Colors.dark.background} />}
